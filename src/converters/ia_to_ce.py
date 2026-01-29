@@ -1,5 +1,6 @@
 import os
 import json
+from turtle import position
 from .base import BaseConverter
 from src.migrators.ia_to_ce import IAMigrator
 
@@ -249,6 +250,11 @@ class IAConverter(BaseConverter):
     def _handle_furniture(self, ce_item, ia_data, ce_id):
         furniture_data = ia_data.get("behaviours", {}).get("furniture", {})
         sit_data = ia_data.get("behaviours", {}).get("furniture_sit")
+        entity_type = furniture_data.get("entity", "armor_stand")
+        
+        # 通过JSON模型计算Y轴偏移量
+        model_path = ia_data.get("resource", {}).get("model_path")
+        translation_y = self._calculate_model_y_translation(model_path)
         
         ce_item["behavior"] = {
             "type": "furniture_item",
@@ -278,17 +284,64 @@ class IAConverter(BaseConverter):
             placeable_on = {"floor": True}
 
         if placeable_on.get("floor"):
-            placement["ground"] = self._create_placement_block(ce_id, furniture_data, "ground", sit_data)
+            placement["ground"] = self._create_placement_block(ce_id, furniture_data, "ground", sit_data, entity_type, translation_y)
         if placeable_on.get("walls"):
-            placement["wall"] = self._create_placement_block(ce_id, furniture_data, "wall", sit_data)
+            placement["wall"] = self._create_placement_block(ce_id, furniture_data, "wall", sit_data, entity_type, translation_y)
         if placeable_on.get("ceiling"):
-            placement["ceiling"] = self._create_placement_block(ce_id, furniture_data, "ceiling", sit_data)
+            placement["ceiling"] = self._create_placement_block(ce_id, furniture_data, "ceiling", sit_data, entity_type, translation_y)
             
         ce_item["behavior"]["furniture"]["placement"] = placement
 
         self._handle_generic_model(ce_item, ia_data.get("resource", {}))
 
-    def _create_placement_block(self, ce_id, furniture_data, placement_type, sit_data=None):
+    def _calculate_model_y_translation(self, model_path):
+        """
+        根据模型元素的 Y 轴坐标计算 Y 轴偏移。
+        默认 = 0.5
+        如果有负数 Y 坐标且小于 -2.0 -> += 1 (即 1.5)
+        如果是正数或微小负数 -> 0.5
+        """
+        if not model_path or not self.ia_resourcepack_root:
+            return 0.5
+            
+        target_namespace = self.namespace
+        clean_path = model_path
+        if ":" in model_path:
+            parts = model_path.split(":")
+            target_namespace = parts[0]
+            clean_path = parts[1]
+            
+        full_path = os.path.join(self.ia_resourcepack_root, "assets", target_namespace, "models", f"{clean_path}.json")
+        print(f"Full path: {full_path}")
+        if not os.path.exists(full_path):
+            return 0.5
+            
+        try:
+            with open(full_path, 'r', encoding='utf-8') as f:
+                model_data = json.load(f)
+                
+            elements = model_data.get("elements", [])
+            has_negative = False
+            for el in elements:
+                # 检查 from/to Y 坐标是否小于 -2.0 (索引 1)
+                from_y = el.get("from", [0,0,0])[1]
+                to_y = el.get("to", [0,0,0])[1]
+                
+                # 如果 Y 坐标小于 -2.0，认为模型有负数 Y 坐标，防止误差
+                if from_y < -2.0 or to_y < -2.0:
+                    has_negative = True
+                    break
+            
+            if has_negative:
+                return 1.5
+            else:
+                return 0.5
+                
+        except Exception as e:
+            print(f"Error reading model {full_path}: {e}")
+            return 0.5
+
+    def _create_placement_block(self, ce_id, furniture_data, placement_type, sit_data=None, entity_type="armor_stand", custom_translation_y=None):
         """
         创建家具放置块 (ground, wall, ceiling) 的通用配置
         """
@@ -304,8 +357,22 @@ class IAConverter(BaseConverter):
              width = hitbox.get("width", 1)
              length = hitbox.get("length", 1)
         
-        translation_y = height / 2.0
+        # Y 轴偏移: 基础为高度的一半
+        if custom_translation_y is not None:
+            translation_y = custom_translation_y
+        else:
+            translation_y = height / 2.0
         
+        # 针对 item_frame 实体的特殊修正
+        # ItemFrame 家具通常需要额外的 Y 轴偏移以避免陷地
+        if entity_type == "item_frame" and placement_type == "ground" and height >1:
+            position_y = 1
+
+        # X/Z 轴偏移: 针对偶数尺寸的家具进行中心修正
+        # 如果尺寸为偶数，模型中心通常在方块边缘，需要偏移 0.5 才能对齐网格
+        translation_x = 0.5 if width % 2 == 0 else 0
+        translation_z = -0.5 if length % 2 == 0 else 0
+            
         block_config = {
             "loot-spawn-offset": "0,0.4,0",
             "rules": {
@@ -319,7 +386,7 @@ class IAConverter(BaseConverter):
                     "shadow-radius": 0.4,
                     "shadow-strength": 0.5,
                     "billboard": "FIXED",
-                    "translation": f"0,{translation_y},0"
+                    "translation": f"{translation_x:g},{translation_y:g},{translation_z:g}"
                 }
             ]
         }

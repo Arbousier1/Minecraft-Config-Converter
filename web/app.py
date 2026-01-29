@@ -218,11 +218,11 @@ def convert():
             ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
             ce_res_dir = os.path.join(ce_output_base, "resourcepack")
             
-            converter.convert(ia_data, namespace=namespace)
-            
             # 如果找到 resourcepack 则设置资源路径
             if ia_resourcepack_path:
                 converter.set_resource_paths(ia_resourcepack_path, ce_res_dir)
+
+            converter.convert(ia_data, namespace=namespace)
             
             converter.save_config(ce_config_dir)
 
