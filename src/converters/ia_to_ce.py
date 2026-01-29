@@ -248,6 +248,7 @@ class IAConverter(BaseConverter):
 
     def _handle_furniture(self, ce_item, ia_data, ce_id):
         furniture_data = ia_data.get("behaviours", {}).get("furniture", {})
+        sit_data = ia_data.get("behaviours", {}).get("furniture_sit")
         
         ce_item["behavior"] = {
             "type": "furniture_item",
@@ -277,17 +278,17 @@ class IAConverter(BaseConverter):
             placeable_on = {"floor": True}
 
         if placeable_on.get("floor"):
-            placement["ground"] = self._create_placement_block(ce_id, furniture_data, "ground")
+            placement["ground"] = self._create_placement_block(ce_id, furniture_data, "ground", sit_data)
         if placeable_on.get("walls"):
-            placement["wall"] = self._create_placement_block(ce_id, furniture_data, "wall")
+            placement["wall"] = self._create_placement_block(ce_id, furniture_data, "wall", sit_data)
         if placeable_on.get("ceiling"):
-            placement["ceiling"] = self._create_placement_block(ce_id, furniture_data, "ceiling")
+            placement["ceiling"] = self._create_placement_block(ce_id, furniture_data, "ceiling", sit_data)
             
         ce_item["behavior"]["furniture"]["placement"] = placement
 
         self._handle_generic_model(ce_item, ia_data.get("resource", {}))
 
-    def _create_placement_block(self, ce_id, furniture_data, placement_type):
+    def _create_placement_block(self, ce_id, furniture_data, placement_type, sit_data=None):
         """
         创建家具放置块 (ground, wall, ceiling) 的通用配置
         """
@@ -338,7 +339,36 @@ class IAConverter(BaseConverter):
             
             # 只有 solid 的家具才生成 shulker 碰撞箱矩阵
             # 非 solid 的家具可能需要 interaction 类型 (暂不处理或生成单个)
-            if is_solid:
+            
+            # 特殊情况: 如果是可坐的 (sit_data)，使用 interaction 类型以支持座位
+            # 并且根据 solid 属性设置 blocks-building
+            if sit_data:
+                # 提取座位高度
+                # IA 默认为 0 (相对于家具底部) ? 
+                # 通常 IA sit_height 是相对于地面的高度 (e.g. 0.8)
+                # CE translation_y = height / 2.0 (中心)
+                # CE interaction hitbox 是相对于家具中心的吗?
+                # 假设 CE seats 坐标是相对于 hitbox 的
+                
+                # 简单的转换逻辑:
+                # CE seat Y = IA sit_height - 0.85 (经验值, 微调)
+                # 或者尝试 IA sit_height - 0.5 (如果 Y 轴原点在中心)
+                
+                ia_sit_height = sit_data.get("sit_height", 0.5)
+                # 尝试对齐示例: 0.8 -> -0.05.  diff = 0.85
+                ce_seat_y = ia_sit_height - 0.85
+                
+                hitboxes.append({
+                    "position": "0,0,0",
+                    "type": "interaction",
+                    "blocks-building": is_solid,
+                    "width": width, # 使用家具定义的宽度
+                    "height": height,
+                    "interactive": True,
+                    "seats": [f"0,{ce_seat_y:g},0"]
+                })
+            
+            elif is_solid:
                 # 遍历体积生成 1x1 碰撞箱
                 # width -> x, height -> y, length -> z
                 # 确保转换为整数循环范围
