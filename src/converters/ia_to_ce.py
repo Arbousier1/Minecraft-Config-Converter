@@ -128,7 +128,6 @@ class IAConverter(BaseConverter):
             ce_cat_id = f"{self.namespace}:{cat_key}"
             
             # 映射物品列表
-            # IA 物品可能有也可能没有命名空间。如果没有，假设为当前命名空间。
             ia_items = cat_data.get("items", [])
             ce_items = []
             for item in ia_items:
@@ -137,10 +136,7 @@ class IAConverter(BaseConverter):
                     if item.startswith(f"{self.namespace}:"):
                         ce_items.append(item)
                     else:
-                        # 如果 IA 配置有不同于我们转换的显式命名空间，
-                        # 我们可能需要小心。但通常只是 'id' 或 'namespace:id'。
-                        # 目前，如果它有命名空间，就信任输入。
-                        ce_items.append(item)
+                         ce_items.append(item)
                 else:
                     ce_items.append(f"{self.namespace}:{item}")
 
@@ -346,7 +342,6 @@ class IAConverter(BaseConverter):
         创建家具放置块 (ground, wall, ceiling) 的通用配置
         """
         # 计算 Translation
-        # CE 的 translation 通常是高度的一半，使模型底部对齐地面
         height = 1
         width = 1
         length = 1
@@ -357,7 +352,7 @@ class IAConverter(BaseConverter):
              width = hitbox.get("width", 1)
              length = hitbox.get("length", 1)
         
-        # Y 轴偏移: 基础为高度的一半
+        # Y 轴偏移: 根据模型计算
         if custom_translation_y is not None:
             translation_y = custom_translation_y
         else:
@@ -365,8 +360,8 @@ class IAConverter(BaseConverter):
         
         # 针对 item_frame 实体的特殊修正
         # ItemFrame 家具通常需要额外的 Y 轴偏移以避免陷地
-        if entity_type == "item_frame" and placement_type == "ground" and height >1:
-            position_y = 1
+        # if entity_type == "item_frame" and placement_type == "ground" and height >1:
+        #     position_y = 1
 
         # X/Z 轴偏移: 针对偶数尺寸的家具进行中心修正
         # 如果尺寸为偶数，模型中心通常在方块边缘，需要偏移 0.5 才能对齐网格
@@ -455,8 +450,7 @@ class IAConverter(BaseConverter):
                             # 居中逻辑: (i - (count - 1) / 2)
                             
                             rel_x = x - (w_range - 1) / 2.0
-                            rel_y = y # 高度通常从底部开始，所以不居中，直接向上延伸? 
-                            # 检查 Big Cupboard: Y=0,1,2. 确实是从 0 开始递增.
+                            rel_y = y 
                             
                             rel_z = z - (l_range - 1) / 2.0
                             
@@ -466,7 +460,6 @@ class IAConverter(BaseConverter):
                             final_z = rel_z + l_offset
                             
                             # Shulker 位置应该是整数 (格式化去除 .0)
-                            # 使用 :g 可以自动去除不必要的浮点
                             pos_str = f"{final_x:g},{final_y:g},{final_z:g}"
                             
                             hitboxes.append({
@@ -497,8 +490,6 @@ class IAConverter(BaseConverter):
         # 为此物品创建一个模板
         template_id = f"models:{self.namespace}_{key}_model"
         
-        # 在真实场景中，我们会扫描 JSON 文件以查找谓词。
-        # 目前，我们基于材质类型和标准 IA 命名约定生成标准模板。
         
         template_def = {}
         args = {}
@@ -529,7 +520,6 @@ class IAConverter(BaseConverter):
             args["bow_pulling_2_model"] = f"{self.namespace}:item/{base_model_path}_2"
 
         elif material == "CROSSBOW":
-            # 简化的弩模板
             template_def = {
                 "type": "minecraft:condition",
                 "property": "minecraft:using_item",
@@ -601,11 +591,9 @@ class IAConverter(BaseConverter):
         # 情况 2: 从纹理生成模型
         elif resource.get("generate") is True and resource.get("textures"):
             # 使用第一个纹理路径作为模型路径的基础
-            # IA: textures: [path/to/texture] -> 通常意味着在 assets/namespace/models/path/to/texture.json 生成模型
-            # CE: 我们将指向 namespace:item/path/to/texture
             
             texture_path = resource["textures"][0]
-            # 如果存在 .png 扩展名则移除 (IA 这里通常没有 .png，但为了安全起见)
+            # 如果存在 .png 扩展名则移除 
             if texture_path.endswith(".png"):
                 texture_path = texture_path[:-4]
                 
@@ -615,9 +603,6 @@ class IAConverter(BaseConverter):
             }
 
             # 注册此模型以进行生成
-            # CE 引用: namespace:item/texture_path
-            # 文件路径: assets/namespace/models/item/texture_path.json
-            # 纹理引用: namespace:item/texture_path (假设迁移器将其移动到 item/)
             
             model_key = f"item/{texture_path}.json"
             self.generated_models[model_key] = {
@@ -657,11 +642,9 @@ class IAConverter(BaseConverter):
             # 映射 layer_1 -> humanoid
             if "layer_1" in armor_data:
                 # IA: armor/layer_1
-                # CE: namespace:armor/layer_1 (将被解析为纹理)
-                # 我们需要为 CE 引用前置命名空间
+                # CE: namespace:armor/layer_1 
                 layer_1_path = armor_data["layer_1"]
-                # 如果路径以 .png 结尾，移除它 (如果引用纹理资源，CE 引用配置中通常没有扩展名，等等..
-                # 实际上 CE 纹理引用通常是 namespace:path/to/texture)
+
                 if layer_1_path.endswith(".png"):
                      layer_1_path = layer_1_path[:-4]
                 
@@ -677,20 +660,12 @@ class IAConverter(BaseConverter):
             self.ce_config["equipments"][ce_key] = ce_entry
 
     def _format_display_name(self, name, data=None):
-        # 基本 MiniMessage 转换
-        # IA 经常使用传统颜色代码，或者纯文本。
-        # 对于此原型，如果尚未格式化，我们将用 CE 风格包装它
+
         if "&" in name or "§" in name:
-            # 替换传统代码 (简化)
             name = name.replace("&", "§")
-            # 如果需要，将常用代码映射到 MiniMessage 标签，或者 CE 可能支持传统代码？
-            # CE 通常使用 MiniMessage <color>。
-            # 目前，我们只假设简单文本需要包装。
             pass
             
-        # 示例格式: <!i><#FFCF20>Name
-        # 如果提供了 data，我们可以检查是否有自定义颜色配置 (在此示例中，我们硬编码 EliteCreatures 风格)
-        # 或者仅仅将其作为默认值
+        # 默认值
         default_color = "<white>"
         if data and "elitecreatures" in self.namespace:
              default_color = "<#FFCF20>"
