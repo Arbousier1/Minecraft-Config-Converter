@@ -437,8 +437,15 @@ class IAConverter(BaseConverter):
             "translation": f"{translation_x:g},{translation_y:g},{translation_z:g}"
         }
 
+        # 针对墙面家具的修正
+        if placement_type == "wall":
+            element_entry["position"] = "0.5,0,0.5"
+        # 针对天花板家具的修正
+        elif placement_type == "ceiling":
+            element_entry["position"] = "0,-2,0"
+
         if scale_data:
-             element_entry["scale"] = f"{s_x:g},{s_y:g},{s_z:g}"
+            element_entry["scale"] = f"{s_x:g},{s_y:g},{s_z:g}"
 
         block_config = {
             "loot-spawn-offset": "0,0.4,0",
@@ -450,7 +457,7 @@ class IAConverter(BaseConverter):
         }
         
         # 处理 Hitbox
-        # 官方逻辑: 将家具拆分为多个 1x1 的 Shulker 碰撞箱
+        #将家具拆分为多个 1x1 的 Shulker 碰撞箱
         if "hitbox" in furniture_data:
             ia_hitbox = furniture_data["hitbox"]
             is_solid = furniture_data.get("solid", True)
@@ -460,6 +467,10 @@ class IAConverter(BaseConverter):
             h_offset = ia_hitbox.get("height_offset", 0)
             l_offset = ia_hitbox.get("length_offset", 0)
             
+            # 天花板家具修正：Hitbox 需要向下移动
+            if placement_type == "ceiling":
+                h_offset -= 1.0
+
             hitboxes = []
             
             # 只有 solid 的家具才生成 shulker 碰撞箱矩阵
@@ -487,7 +498,7 @@ class IAConverter(BaseConverter):
                         seats.append(f"{offset_x:g},{ce_seat_y:g},0")
 
                 hitboxes.append({
-                    "position": "0,0,0",
+                    "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
                     "type": "interaction",
                     "blocks-building": is_solid,
                     "width": width,
@@ -495,7 +506,7 @@ class IAConverter(BaseConverter):
                     "interactive": True,
                     "seats": seats
                 })
-            
+
             elif is_solid:
                 # 遍历体积生成 1x1 碰撞箱
                 # width -> x, height -> y, length -> z
@@ -537,7 +548,7 @@ class IAConverter(BaseConverter):
             else:
                 # 非实体，生成一个交互框
                 hitboxes.append({
-                    "position": "0,0,0",
+                    "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
                     "type": "interaction",
                     "blocks-building": False,
                     "width": width,
