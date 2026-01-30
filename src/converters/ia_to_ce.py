@@ -113,8 +113,46 @@ class IAConverter(BaseConverter):
         # 转换分类
         if "categories" in ia_data:
             self._convert_categories(ia_data["categories"])
+        
+        # 自动生成分类 (如果不存在)
+        if not self.ce_config["categories"] and self.ce_config["items"]:
+            self._generate_default_category()
 
         return self.ce_config
+
+    def _generate_default_category(self):
+        """
+        当输入未提供分类时，生成一个包含所有物品的默认分类。
+        """
+        cat_id = f"{self.namespace}:default"
+        
+        # 收集所有物品 ID
+        items_list = list(self.ce_config["items"].keys())
+        
+        # 尝试寻找合适的图标 (第一个物品)
+        icon = "minecraft:chest"
+        if items_list:
+            first_item = self.ce_config["items"][items_list[0]]
+            # 如果物品有自定义模型，尝试使用该物品作为图标
+            if "model" in first_item:
+                 icon = items_list[0]
+            else:
+                 icon = first_item.get("material", "minecraft:chest")
+
+        ce_category = {
+            "name": f"<!i>{self.namespace.capitalize()}",
+            "lore": [
+                "<!i><gray>该配置由 <#FFFF00>MMC TOOL</#FFFF00> 自动生成",
+                "<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
+                "<!i><dark_gray>感谢您的支持！</dark_gray>"
+            ],
+            "priority": 1,
+            "icon": icon,
+            "list": items_list,
+            "hidden": False
+        }
+        
+        self.ce_config["categories"][cat_id] = ce_category
 
     def _convert_items(self, items_data):
         for item_key, item_data in items_data.items():
