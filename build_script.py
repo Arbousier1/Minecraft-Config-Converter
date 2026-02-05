@@ -19,6 +19,8 @@ args = [
     '--add-data=web/templates;templates', # 包含 HTML 模板
     '--add-data=web/static;static',       # 包含静态文件 (CSS/JS)
     '--paths=.',                          # 将当前目录添加到导入搜索路径
+    '--hidden-import=flask',              # 确保 Flask 被打包
+    '--hidden-import=yaml',               # 确保 PyYAML 被打包
     '--clean',
     '--distpath=dist',
 ]
