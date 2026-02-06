@@ -142,7 +142,7 @@ class IAConverter(BaseConverter):
         ce_category = {
             "name": f"<!i>{self.namespace.capitalize()}",
             "lore": [
-                "<!i><gray>该配置由 <#FFFF00>MMC TOOL</#FFFF00> 自动生成",
+                "<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 自动生成",
                 "<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
                 "<!i><dark_gray>感谢您的支持！</dark_gray>"
             ],
@@ -192,7 +192,7 @@ class IAConverter(BaseConverter):
             ce_category = {
                 "name": f"<!i>{cat_data.get('name', cat_key)}",
                 "lore": [
-                    "<!i><gray>该配置由 <#FFFF00>MMC TOOL</#FFFF00> 生成",
+                    "<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 生成",
                     "<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
                     "<!i><dark_gray>感谢您的支持！</dark_gray>"
                 ],

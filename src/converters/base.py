@@ -43,5 +43,5 @@ class BaseConverter(ABC):
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
             yaml.dump(data, f, sort_keys=False, allow_unicode=True, default_flow_style=False)
-            f.write("\n#该配置由 MMC Tool 自动生成 \n")
-            f.write("#MMC Tool由闲鱼店铺：快乐售货铺 提供\n")
+            f.write("\n#该配置由 MCC Tool 自动生成 \n")
+            f.write("#MCC Tool由闲鱼店铺：快乐售货铺 提供\n")
