@@ -26,14 +26,39 @@ class IAMigrator(BaseMigrator):
         
         print("迁移完成。")
 
+    def _get_resource_dir(self, resource_type):
+        """
+        辅助方法：查找正确的资源目录。
+        尝试顺序：
+        1. assets/<namespace>/<resource_type> (标准结构)
+        2. <namespace>/<resource_type> (缺失 assets 文件夹结构)
+        3. <resource_type> (扁平结构)
+        """
+        # 1. 标准: assets/namespace/type
+        path1 = os.path.join(self.input_path, "assets", self.namespace, resource_type)
+        if os.path.exists(path1):
+            return path1
+            
+        # 2. 缺失 assets: namespace/type
+        path2 = os.path.join(self.input_path, self.namespace, resource_type)
+        if os.path.exists(path2):
+            return path2
+            
+        # 3. 扁平: type (仅当 input_path 已经是命名空间根目录时)
+        path3 = os.path.join(self.input_path, resource_type)
+        if os.path.exists(path3):
+            return path3
+            
+        return None
+
     def _migrate_textures(self):
         """
         ItemsAdder: assets/<namespace>/textures/<path>
         CraftEngine: assets/<namespace>/textures/item/<path> (标准约定)
         """
-        src_dir = os.path.join(self.input_path, "assets", self.namespace, "textures")
-        if not os.path.exists(src_dir):
-            print(f"警告: 在 {src_dir} 未找到纹理")
+        src_dir = self._get_resource_dir("textures")
+        if not src_dir:
+            print(f"警告: 在 {self.input_path} 未找到纹理目录 (namespace: {self.namespace})")
             return
 
         # 我们需要小心。ItemsAdder 允许 textures/ 下有任意结构。
@@ -71,8 +96,8 @@ class IAMigrator(BaseMigrator):
         ItemsAdder: assets/<namespace>/models/<path>
         CraftEngine: assets/<namespace>/models/item/<path>
         """
-        src_dir = os.path.join(self.input_path, "assets", self.namespace, "models")
-        if not os.path.exists(src_dir):
+        src_dir = self._get_resource_dir("models")
+        if not src_dir:
             return
 
         for root, _, files in os.walk(src_dir):
