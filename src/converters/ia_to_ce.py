@@ -221,15 +221,16 @@ class IAConverter(BaseConverter):
         # 根据材质或行为处理特定类型
         behaviours = data.get("behaviours", {})
         
-        if self._is_armor(material, data):
+        # 优先处理 Hat 或 带有 equipment 但无 ID 的物品 (视为简单装备/帽子)
+        if behaviours.get("hat") or ("equipment" in data and "id" not in data["equipment"]):
+             ce_item["data"]["equippable"] = {"slot": "head"}
+             self._handle_generic_model(ce_item, resource)
+        elif self._is_armor(material, data):
             self._handle_armor(ce_item, data)
         elif behaviours.get("furniture"):
             self._handle_furniture(ce_item, data, ce_id)
         elif self._is_complex_item(material):
             self._handle_complex_item(ce_item, key, data, material)
-        elif behaviours.get("hat"):
-             ce_item["data"]["equippable"] = {"slot": "head"}
-             self._handle_generic_model(ce_item, resource)
         else:
             self._handle_generic_model(ce_item, resource)
 
