@@ -1,0 +1,37 @@
+name: Sync Upstream
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天北京时间 08:00 运行
+  workflow_dispatch:    # 允许手动触发
+
+jobs:
+  sync_latest_from_upstream:
+    runs-on: ubuntu-latest
+    name: Sync latest commits from upstream repo
+
+    steps:
+    # 第一步：检出你的仓库代码
+    - name: Checkout target repo
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # 必须获取完整历史以进行合并
+
+    # 第二步：使用社区常用的同步 Action
+    - name: Sync upstream changes
+      uses: aormsby/Fork-Sync-With-Upstream-action@v3.4.1
+      with:
+        target_sync_branch: main
+        target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+        upstream_sync_branch: main
+        upstream_sync_repo: Dove-Chen/Minecraft-Config-Converter
+        
+        # 即使有冲突也尝试合并（如果完全不需要保留本地修改，可设为 true）
+        test_mode: false
+
+    - name: Check for errors
+      if: failure()
+      run: echo "同步失败，可能存在合并冲突，请手动处理。"
