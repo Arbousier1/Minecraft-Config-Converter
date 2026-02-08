@@ -1,0 +1,38 @@
+name: Build Minecraft Config Converter
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-latest  # 因为你要构建 .exe，必须在 Windows 环境下运行
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.13
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+        cache: 'pip' # 自动缓存依赖，加快后续构建速度
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install pyinstaller flask pyyaml
+        # 如果你有 requirements.txt，也可以使用：
+        # python -m pip install -r requirements.txt
+
+    - name: Run Build Script
+      run: |
+        python build.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MCC_Tool_Windows
+        path: dist/MCC_Tool.exe
