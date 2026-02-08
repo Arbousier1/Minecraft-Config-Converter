@@ -18,3 +18,4 @@ MCC（Minecraft Config Converter） 是一个用于分析和转换 Minecraft 服
 2. Nexo适配工作 2026/02/06
 
 ## 已完成事项
+资源路径优化，防止重复添加item/子目录 2026/02/08
