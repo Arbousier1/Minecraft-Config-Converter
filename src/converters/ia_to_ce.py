@@ -570,6 +570,14 @@ class IAConverter(BaseConverter):
     def _is_complex_item(self, material):
         return material in ["BOW", "CROSSBOW", "FISHING_ROD", "SHIELD"]
 
+    def _get_model_ref(self, path):
+        """
+        获取 CraftEngine 格式的模型引用，自动处理 item/ 前缀
+        """
+        if path.startswith("item/"):
+             return f"{self.namespace}:{path}"
+        return f"{self.namespace}:item/{path}"
+
     def _handle_complex_item(self, ce_item, key, ia_data, material):
         # 为此物品创建一个模板
         template_id = f"models:{self.namespace}_{key}_model"
@@ -598,10 +606,10 @@ class IAConverter(BaseConverter):
                 }
             }
             # 推断路径
-            args["bow_model"] = f"{self.namespace}:item/{base_model_path}"
-            args["bow_pulling_0_model"] = f"{self.namespace}:item/{base_model_path}_0"
-            args["bow_pulling_1_model"] = f"{self.namespace}:item/{base_model_path}_1"
-            args["bow_pulling_2_model"] = f"{self.namespace}:item/{base_model_path}_2"
+            args["bow_model"] = self._get_model_ref(base_model_path)
+            args["bow_pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
+            args["bow_pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
+            args["bow_pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
 
         elif material == "CROSSBOW":
             template_def = {
@@ -626,12 +634,12 @@ class IAConverter(BaseConverter):
                      "fallback": {"type": "minecraft:model", "path": "${pulling_0_model}"}
                 }
             }
-            args["model"] = f"{self.namespace}:item/{base_model_path}"
-            args["arrow_model"] = f"{self.namespace}:item/{base_model_path}_charged"
-            args["firework_model"] = f"{self.namespace}:item/{base_model_path}_firework"
-            args["pulling_0_model"] = f"{self.namespace}:item/{base_model_path}_0"
-            args["pulling_1_model"] = f"{self.namespace}:item/{base_model_path}_1"
-            args["pulling_2_model"] = f"{self.namespace}:item/{base_model_path}_2"
+            args["model"] = self._get_model_ref(base_model_path)
+            args["arrow_model"] = self._get_model_ref(f"{base_model_path}_charged")
+            args["firework_model"] = self._get_model_ref(f"{base_model_path}_firework")
+            args["pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
+            args["pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
+            args["pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
             
         elif material == "SHIELD":
             template_def = {
@@ -640,8 +648,8 @@ class IAConverter(BaseConverter):
                 "on-false": {"type": "minecraft:model", "path": "${shield_model}"},
                 "on-true": {"type": "minecraft:model", "path": "${shield_blocking_model}"}
             }
-            args["shield_model"] = f"{self.namespace}:item/{base_model_path}"
-            args["shield_blocking_model"] = f"{self.namespace}:item/{base_model_path}_blocking"
+            args["shield_model"] = self._get_model_ref(base_model_path)
+            args["shield_blocking_model"] = self._get_model_ref(f"{base_model_path}_blocking")
             
         elif material == "FISHING_ROD":
              template_def = {
@@ -650,8 +658,8 @@ class IAConverter(BaseConverter):
                 "on-false": {"type": "minecraft:model", "path": "${path}"},
                 "on-true": {"type": "minecraft:model", "path": "${cast_path}"}
             }
-             args["path"] = f"{self.namespace}:item/{base_model_path}"
-             args["cast_path"] = f"{self.namespace}:item/{base_model_path}_cast"
+             args["path"] = self._get_model_ref(base_model_path)
+             args["cast_path"] = self._get_model_ref(f"{base_model_path}_cast")
 
         # 注册模板
         self.ce_config["templates"][template_id] = template_def
@@ -671,10 +679,17 @@ class IAConverter(BaseConverter):
             # 因为 CraftEngine 会自动拼接当前命名空间，或者我们手动拼接时避免重复
             if ":" in model_path:
                 model_path = model_path.split(":")[1]
+            
+            # 检查 model_path 是否已经包含 item/ 前缀，避免双重嵌套
+            parts = model_path.split("/")
+            if parts[0] == "item":
+                final_path = model_path
+            else:
+                final_path = f"item/{model_path}"
                 
             ce_item["model"] = {
                 "type": "minecraft:model",
-                "path": f"{self.namespace}:item/{model_path}"
+                "path": f"{self.namespace}:{final_path}"
             }
         
         # 情况 2: 从纹理生成模型
@@ -697,18 +712,25 @@ class IAConverter(BaseConverter):
                 if texture_path.endswith(".png"):
                     texture_path = texture_path[:-4]
                     
+                # 检查 texture_path 是否已经包含 item/ 前缀，避免双重嵌套
+                parts = texture_path.split("/")
+                if parts[0] == "item":
+                    final_path = texture_path
+                else:
+                    final_path = f"item/{texture_path}"
+                    
                 ce_item["model"] = {
                     "type": "minecraft:model",
-                    "path": f"{self.namespace}:item/{texture_path}"
+                    "path": f"{self.namespace}:{final_path}"
                 }
 
                 # 注册此模型以进行生成
                 
-                model_key = f"item/{texture_path}.json"
+                model_key = f"{final_path}.json"
                 self.generated_models[model_key] = {
                     "parent": "minecraft:item/generated",
                     "textures": {
-                        "layer0": f"{self.namespace}:item/{texture_path}"
+                        "layer0": f"{self.namespace}:{final_path}"
                     }
                 }
 

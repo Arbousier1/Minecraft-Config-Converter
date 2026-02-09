@@ -82,7 +82,14 @@ class IAMigrator(BaseMigrator):
                 if "layer_" in file:
                      dest_rel = rel_path
                 else:
-                    dest_rel = os.path.join("item", rel_path)
+                    # 如果原路径已经是在 item/ 下，不要重复添加
+                    # 使用 os.path.split 或检查开头
+                    # 注意 windows 下 rel_path 可能是 "item\\sword.png"
+                    parts = rel_path.split(os.sep)
+                    if parts[0] == "item":
+                        dest_rel = rel_path
+                    else:
+                        dest_rel = os.path.join("item", rel_path)
 
                 dest_dir = os.path.join(self.output_path, "assets", self.namespace, "textures", dest_rel)
                 os.makedirs(dest_dir, exist_ok=True)
@@ -108,8 +115,13 @@ class IAMigrator(BaseMigrator):
                 rel_path = os.path.relpath(root, src_dir)
                 src_file = os.path.join(root, file)
                 
-                # 移动到 CE 中的 item/ 子目录
-                dest_rel = os.path.join("item", rel_path)
+                # 移动到 CE 中的 item/ 子目录，防止双重 item/
+                parts = rel_path.split(os.sep)
+                if parts[0] == "item":
+                    dest_rel = rel_path
+                else:
+                    dest_rel = os.path.join("item", rel_path)
+                    
                 dest_dir = os.path.join(self.output_path, "assets", self.namespace, "models", dest_rel)
                 os.makedirs(dest_dir, exist_ok=True)
                 
