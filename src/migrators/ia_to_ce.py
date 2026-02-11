@@ -185,6 +185,12 @@ class IAMigrator(BaseMigrator):
             with open(src_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
+            # 移除非 minecraft 的 parent 引用
+            if "parent" in data:
+                parent_val = data["parent"]
+                if not parent_val.startswith("minecraft:"):
+                    del data["parent"]
+
             # 修复纹理路径
             # IA: <namespace>:<path> (相对于 textures/)
             # CE: <namespace>:item/<path> (我们将它们移动到了 item/)
