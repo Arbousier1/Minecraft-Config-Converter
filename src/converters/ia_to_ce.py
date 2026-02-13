@@ -686,6 +686,10 @@ class IAConverter(BaseConverter):
             if ":" in model_path:
                 model_path = model_path.split(":")[1]
             
+            # 移除 .json 后缀
+            if model_path.endswith(".json"):
+                model_path = model_path[:-5]
+
             # 检查 model_path 是否已经包含 item/ 前缀，避免双重嵌套
             parts = model_path.split("/")
             if parts[0] == "item":
