@@ -4,24 +4,46 @@ import shutil
 import zipfile
 import uuid
 import re
-from threading import Thread
+import threading
 import time
 import yaml
-
-# 导入核心逻辑
 import sys
+import webbrowser
+from threading import Timer
+
+# --- 修复核心：正确获取程序运行目录 ---
+# 无论是在编辑器运行还是打包成exe，都能找到当前文件所在的文件夹
+if getattr(sys, 'frozen', False):
+    # 如果是 PyInstaller 打包后的 exe
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # 如果是普通 Python 脚本运行
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# 确保能引用到上级目录的 src (保持原有逻辑)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from src.converters.ia_to_ce import IAConverter
-from src.analyzer import PackageAnalyzer
+
+# 尝试导入自定义模块，如果失败打印提示
+try:
+    from src.converters.ia_to_ce import IAConverter
+    from src.analyzer import PackageAnalyzer
+except ImportError:
+    print("Warning: Failed to import src modules. Ensure source structure is correct.")
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'temp_uploads')
-app.config['OUTPUT_FOLDER'] = os.path.join(os.getcwd(), 'temp_output')
+
+# --- 使用修复后的 BASE_DIR 设置路径 ---
+app.config['UPLOAD_FOLDER'] = os.path.join(BASE_DIR, 'temp_uploads')
+app.config['OUTPUT_FOLDER'] = os.path.join(BASE_DIR, 'temp_output')
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB 限制
 
 # 确保临时目录存在
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+try:
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
+    print(f"Working directories created at: {BASE_DIR}")
+except PermissionError:
+    print(f"Error: Still no permission to write to {BASE_DIR}. Please run as Administrator or move the program to a user folder.")
 
 @app.route('/')
 def index():
@@ -58,12 +80,6 @@ def analyze():
             report = analyzer.analyze()
             
             # 根据检测到的格式确定可用的目标格式
-            # 逻辑：
-            # 1. 识别源格式 (可能包含多个)
-            # 2. 如果包含 ItemsAdder -> 允许转为 CraftEngine (除非已包含 CraftEngine)
-            # 3. 如果包含 CraftEngine -> 暂无转换 (或允许转为 ItemsAdder)
-            # 4. 如果包含 Nexo -> 暂无转换
-            
             detected_formats = report["formats"]
             available_targets = []
             warnings = []
@@ -77,7 +93,7 @@ def analyze():
                  # 未来支持 CE -> IA
                  pass
 
-            report["source_formats"] = detected_formats # 改名以反映复数
+            report["source_formats"] = detected_formats
             report["available_targets"] = available_targets
             report["warnings"] = warnings
             report["filename"] = filename
@@ -138,7 +154,6 @@ def convert():
     try:
         if target_format == "CraftEngine":
             # 3. 定位配置和资源 (ItemsAdder -> CraftEngine 逻辑)
-            # 改进逻辑: 扫描所有 YAML 文件并根据内容进行分类
             ia_items_configs = []
             ia_categories_configs = []
             ia_resourcepack_path = None
@@ -191,7 +206,7 @@ def convert():
                         except Exception:
                             continue
 
-            # 如果仍未找到资源包，尝试寻找 textures/models 的父级 (处理非标准结构)
+            # 如果仍未找到资源包，尝试寻找 textures/models 的父级
             if ia_resourcepack_path is None:
                 # 如果有配置文件，默认为提取根目录
                 if ia_items_configs:
@@ -212,7 +227,7 @@ def convert():
                 
                 # 合并逻辑
                 if "info" in data and not merged_items_data["info"]:
-                    merged_items_data["info"] = data["info"] # 使用找到的第一个 info
+                    merged_items_data["info"] = data["info"] 
                 
                 if "items" in data:
                     merged_items_data.setdefault("items", {}).update(data["items"])
@@ -240,21 +255,18 @@ def convert():
                     ia_data["categories"] = merged_categories
 
             # 准备输出路径
-            # CraftEngine 输出结构: resources/<namespace>/...
-            # 使用配置中的命名空间或默认值
             original_namespace = ia_data.get("info", {}).get("namespace", "converted")
             namespace = original_namespace
             
             # 检查用户是否指定了命名空间
             user_namespace = request.form.get('namespace')
             if user_namespace:
-                # 验证命名空间规则: 0-9, a-z, _, -, .
+                # 验证命名空间规则
                 if not re.match(r'^[0-9a-z_.-]+$', user_namespace):
                     return jsonify({'error': '命名空间包含非法字符。仅允许小写字母、数字、下划线、连字符和英文句号。'}), 400
                 namespace = user_namespace
 
-            # 特殊处理：如果资源包结构是非标准的（直接包含 models/textures），则重组为标准结构
-            # 这通常发生在 ia_resourcepack_path 指向了包含 models/textures 的根目录，但缺少 assets/<namespace> 包装的情况
+            # 特殊处理：如果资源包结构是非标准的
             if ia_resourcepack_path and os.path.exists(ia_resourcepack_path):
                 # 检查标准结构是否存在
                 assets_path = os.path.join(ia_resourcepack_path, "assets")
@@ -265,23 +277,19 @@ def convert():
                     
                     if has_models or has_textures:
                         print(f"检测到非标准资源包结构，正在重组为 assets/{namespace}/...")
-                        # 创建一个新的临时目录作为资源包根目录，以避免污染原始提取目录或处理路径冲突
                         restructured_root = os.path.join(session_upload_dir, "restructured_rp")
                         target_ns_dir = os.path.join(restructured_root, "assets", namespace)
                         os.makedirs(target_ns_dir, exist_ok=True)
                         
-                        # 移动文件夹
                         for folder_name in ["models", "textures", "sounds"]:
                             src_folder = os.path.join(ia_resourcepack_path, folder_name)
                             if os.path.exists(src_folder):
                                 dst_folder = os.path.join(target_ns_dir, folder_name)
-                                # 移动文件夹
                                 shutil.move(src_folder, dst_folder)
                         
-                        # 更新资源包路径指向新的标准结构根目录
                         ia_resourcepack_path = restructured_root
                 else:
-                    # 标准结构：如果命名空间改变，尝试重命名文件夹以匹配新的命名空间
+                    # 标准结构：尝试重命名命名空间文件夹
                     if namespace != original_namespace:
                         src_ns_path = os.path.join(assets_path, original_namespace)
                         dst_ns_path = os.path.join(assets_path, namespace)
@@ -296,7 +304,6 @@ def convert():
             ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
             ce_res_dir = os.path.join(ce_output_base, "resourcepack")
             
-            # 如果找到 resourcepack 则设置资源路径
             if ia_resourcepack_path:
                 converter.set_resource_paths(ia_resourcepack_path, ce_res_dir)
 
@@ -305,28 +312,26 @@ def convert():
             converter.save_config(ce_config_dir)
 
             # 5. 压缩结果
-            # 获取原始文件名 
             original_filename = "converted"
             try:
                 for f in os.listdir(session_upload_dir):
                     if f.endswith(".zip"):
-                        original_filename = f[:-4] # 移除 .zip
+                        original_filename = f[:-4]
                         break
             except:
                 pass
 
             output_filename = f"{original_filename} [{target_format} by MCC].zip"
-            # 简单的文件名清理，防止非法字符
             output_filename = re.sub(r'[\\/*?:"<>|]', "", output_filename)
             
             output_zip_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
-            # 我们希望压缩包解压后直接是 resources 文件夹，或者 CraftEngine 文件夹
+            
+            # 创建 zip 时去掉 .zip 后缀，因为 make_archive 会自动加
+            base_name = output_zip_path
+            if base_name.endswith('.zip'):
+                base_name = base_name[:-4]
 
-            shutil.make_archive(output_zip_path[:-4], 'zip', session_output_dir, "CraftEngine")
-
-            # 清理会话文件 
-            # shutil.rmtree(session_upload_dir)
-            # shutil.rmtree(session_output_dir)
+            shutil.make_archive(base_name, 'zip', session_output_dir, "CraftEngine")
 
             return jsonify({
                 'status': 'success',
@@ -342,24 +347,11 @@ def convert():
 def download_file(filename):
     return send_file(os.path.join(app.config['OUTPUT_FOLDER'], filename), as_attachment=True)
 
-import webbrowser
-from threading import Timer, Lock
-
-# ... existing imports ...
-
-# ... existing code ...
-
 @app.route('/api/shutdown', methods=['POST'])
 def shutdown():
     """关闭服务器"""
     func = request.environ.get('werkzeug.server.shutdown')
     if func is None:
-        # 如果不是使用 Werkzeug 运行 (例如生产环境 WSGI)，这可能会失败或需要替代方案
-        # 但对于本地 PyInstaller 使用，通常是 Werkzeug。
-        # 替代方案: sys.exit()
-        import sys
-        import threading
-        
         def kill():
             sys.exit(0)
             
@@ -374,7 +366,7 @@ def open_browser():
 
 # 心跳全局状态
 last_heartbeat = time.time()
-HEARTBEAT_TIMEOUT = 15  # 秒，增加超时时间以允许更长的启动加载
+HEARTBEAT_TIMEOUT = 15  # 秒
 
 @app.route('/api/heartbeat', methods=['POST'])
 def heartbeat():
@@ -390,20 +382,15 @@ def check_heartbeat():
         # 如果 TIMEOUT 秒内没有心跳，则关闭
         if time.time() - last_heartbeat > HEARTBEAT_TIMEOUT:
             print("心跳超时。正在关闭服务器...")
-            # 使用 os._exit 从线程立即终止
             os._exit(0)
 
 if __name__ == '__main__':
-    # 仅在非调试模式下打开浏览器 (重载会导致双重打开)
-    # 但对于打包的应用，调试通常为 False 或不相关。
+    # 仅在非调试模式下打开浏览器
     if not os.environ.get("WERKZEUG_RUN_MAIN"):
         Timer(1.5, open_browser).start()
         
-        # 重置心跳计时器以避免在启动期间超时
         last_heartbeat = time.time()
         
-        # 启动心跳监控线程
-        import threading
         monitor_thread = threading.Thread(target=check_heartbeat, daemon=True)
         monitor_thread.start()
         
