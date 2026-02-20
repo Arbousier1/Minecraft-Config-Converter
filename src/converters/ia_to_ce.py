@@ -374,7 +374,7 @@ class IAConverter(BaseConverter):
                 to_y = el.get("to", [0,0,0])[1]
                 
                 # 如果 Y 坐标小于 -2.0，认为模型有负数 Y 坐标，防止误差
-                if from_y < -2.0 or to_y < -2.0:
+                if from_y < -5.0 or to_y < -5.0:
                     has_negative = True
                     break
             
@@ -424,11 +424,21 @@ class IAConverter(BaseConverter):
             s_y = scale_data.get("y", 1.0)
             s_z = scale_data.get("z", 1.0)
             
+            scale_flag = False
+            # 优化: 当 scale 为 0.5 时忽略不计，直接改为 1
+            if s_x == 0.5 and s_y == 0.5 and s_z == 0.5:
+                s_x, s_y, s_z = 1.0, 1.0, 1.0
+            elif s_x == 1.0 and s_y == 1.0 and s_z == 1.0:
+                s_x, s_y, s_z = 2.0, 2.0, 2.0
+                scale_flag = True
             # 应用 Scale 修正到 Translation Y
             # 逻辑: translation_y = original_translation_y * max(scale)
             max_scale = max(s_x, s_y, s_z)
-            translation_y = translation_y * max_scale
-
+            if scale_flag == False:
+                translation_y = translation_y * max_scale
+        # 如果是天花板家具就将 Y 轴偏移设为 0
+        if placement_type == "ceiling":
+            translation_y = 0
         translation_x = 0
         translation_z = 0
         # X/Z 轴偏移: 针对偶数尺寸的家具进行中心修正
@@ -454,7 +464,7 @@ class IAConverter(BaseConverter):
             element_entry["position"] = "0,0,0.5"
         # 针对天花板家具的修正
         elif placement_type == "ceiling":
-            element_entry["position"] = "0,-2,0"
+            element_entry["position"] = "0,-1,0"
 
         if scale_data:
             element_entry["scale"] = f"{s_x:g},{s_y:g},{s_z:g}"
@@ -471,6 +481,7 @@ class IAConverter(BaseConverter):
         # 处理 Hitbox
         #将家具拆分为多个 1x1 的 Shulker 碰撞箱
         # 墙面家具不需要碰撞箱
+        hitboxes = []
         if "hitbox" in furniture_data and placement_type != "wall":
             ia_hitbox = furniture_data["hitbox"]
             is_solid = furniture_data.get("solid", True)
@@ -482,9 +493,7 @@ class IAConverter(BaseConverter):
             
             # 天花板家具修正：Hitbox 需要向下移动
             if placement_type == "ceiling":
-                h_offset -= 1.0
-
-            hitboxes = []
+                h_offset -= height
             
             # 只有 solid 的家具才生成 shulker 碰撞箱矩阵
             # 非 solid 的家具可能需要 interaction 类型 (暂不处理或生成单个)
@@ -549,8 +558,14 @@ class IAConverter(BaseConverter):
                             final_y = rel_y + h_offset
                             final_z = rel_z + l_offset
                             
-                            # Shulker 位置应该是整数 (格式化去除 .0)
-                            pos_str = f"{final_x:g},{final_y:g},{final_z:g}"
+                            # Shulker 位置应该是整数
+                            # 使用标准四舍五入逻辑: floor(x + 0.5)
+                            import math
+                            final_x = math.floor(final_x + 0.5)
+                            final_y = math.floor(final_y + 0.5)
+                            final_z = math.floor(final_z + 0.5)
+                            
+                            pos_str = f"{int(final_x)},{int(final_y)},{int(final_z)}"
                             
                             hitboxes.append({
                                 "position": pos_str,
@@ -569,6 +584,18 @@ class IAConverter(BaseConverter):
                     "interactive": True
                 })
 
+        elif placement_type == "ceiling":
+            # 针对没有碰撞体积的情况下天花板家具要额外加入 position: 0,-1,0
+            hitboxes.append({
+                "type": "interaction",
+                "position": "0,-1,0",
+                "width": width,
+                "height": height,
+                "interactive": True,
+                "blocks-building": False
+            })
+
+        if hitboxes:
             block_config["hitboxes"] = hitboxes
             
         return block_config
