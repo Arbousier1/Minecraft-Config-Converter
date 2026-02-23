@@ -369,12 +369,12 @@ class IAConverter(BaseConverter):
             elements = model_data.get("elements", [])
             has_negative = False
             for el in elements:
-                # 检查 from/to Y 坐标是否小于 -2.0 (索引 1)
+                # 检查 from/to Y 坐标是否小于 -7.0 (索引 1)
                 from_y = el.get("from", [0,0,0])[1]
                 to_y = el.get("to", [0,0,0])[1]
                 
-                # 如果 Y 坐标小于 -2.0，认为模型有负数 Y 坐标，防止误差
-                if from_y < -5.0 or to_y < -5.0:
+                # 如果 Y 坐标小于 -7.0，认为模型有负数 Y 坐标，防止误差
+                if from_y < -7.0 or to_y < -7.0:
                     has_negative = True
                     break
             
