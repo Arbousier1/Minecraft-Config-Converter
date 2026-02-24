@@ -364,12 +364,12 @@ class IAConverter(BaseConverter):
             elements = model_data.get("elements", [])
             has_negative = False
             for el in elements:
-                # 检查 from/to Y 坐标是否小于 -2.0 (索引 1)
+                # 检查 from/to Y 坐标是否小于 -7.0 (索引 1)
                 from_y = el.get("from", [0,0,0])[1]
                 to_y = el.get("to", [0,0,0])[1]
                 
-                # 如果 Y 坐标小于 -2.0，认为模型有负数 Y 坐标，防止误差
-                if from_y < -5.0 or to_y < -5.0:
+                # 如果 Y 坐标小于 -7.0，认为模型有负数 Y 坐标，防止误差
+                if from_y < -7.0 or to_y < -7.0:
                     has_negative = True
                     break
             
@@ -408,8 +408,9 @@ class IAConverter(BaseConverter):
         s_x, s_y, s_z = 1.0, 1.0, 1.0
         
         # 优先检查 item_display 的 display_transformation.scale
-        if "display_transformation" in furniture_data and "scale" in furniture_data["display_transformation"]:
-             scale_data = furniture_data["display_transformation"]["scale"]
+        display_transformation = furniture_data.get("display_transformation") or {}
+        if "scale" in display_transformation:
+             scale_data = display_transformation["scale"]
         # 其次检查直接的 scale 属性 (向后兼容或 armor_stand)
         elif "scale" in furniture_data:
             scale_data = furniture_data["scale"]
@@ -420,19 +421,19 @@ class IAConverter(BaseConverter):
             s_z = scale_data.get("z", 1.0)
             
             scale_flag = False
-            # 优化: 当 scale 为 0.5 时忽略不计，直接改为 1
-            if s_x == 0.5 and s_y == 0.5 and s_z == 0.5:
-                s_x, s_y, s_z = 1.0, 1.0, 1.0
-            elif s_x == 1.0 and s_y == 1.0 and s_z == 1.0:
-                s_x, s_y, s_z = 2.0, 2.0, 2.0
+            # 针对 shizuart 作者的优化
+            if "shizuart" in self.namespace.lower():
+                s_x *= 2.0
+                s_y *= 2.0
+                s_z *= 2.0
                 scale_flag = True
             # 应用 Scale 修正到 Translation Y
             # 逻辑: translation_y = original_translation_y * max(scale)
             max_scale = max(s_x, s_y, s_z)
             if scale_flag == False:
                 translation_y = translation_y * max_scale
-        # 如果是天花板家具就将 Y 轴偏移设为 0
-        if placement_type == "ceiling":
+        # 如果是天花板或墙面家具就将 Y 轴偏移设为 0
+        if placement_type == "ceiling" or placement_type == "wall":
             translation_y = 0
         translation_x = 0
         translation_z = 0
@@ -445,6 +446,44 @@ class IAConverter(BaseConverter):
         if height == 2 and width == 3 and length == 2:
             translation_z = 0.5
 
+        # 处理 Rotation (display_transformation)
+        rotation_str = None
+        
+        # 仅当 placement_type 为 wall 时才处理 rotation
+        if placement_type == "wall":
+            # 检查 right_rotation
+            # 规则: angle 为 -90 时取正数 (绝对值)
+            if "right_rotation" in display_transformation:
+                rr = display_transformation["right_rotation"]
+                if isinstance(rr, dict) and "axis_angle" in rr:
+                    angle = rr["axis_angle"].get("angle", 0)
+                    axis = rr["axis_angle"].get("axis", {"x": 0, "y": 0, "z": 0})
+                    
+                    # 取绝对值
+                    angle = abs(angle)
+                    
+                    rx = angle if axis.get("x") else 0
+                    ry = angle if axis.get("y") else 0
+                    rz = angle if axis.get("z") else 0
+                    
+                    if rx != 0 or ry != 0 or rz != 0:
+                        rotation_str = f"{rx:g},{ry:g},{rz:g}"
+
+            # 检查 left_rotation (覆盖 right_rotation)
+            # 规则: angle 不变
+            if "left_rotation" in display_transformation:
+                lr = display_transformation["left_rotation"]
+                if isinstance(lr, dict) and "axis_angle" in lr:
+                    angle = lr["axis_angle"].get("angle", 0)
+                    axis = lr["axis_angle"].get("axis", {"x": 0, "y": 0, "z": 0})
+                    
+                    rx = angle if axis.get("x") else 0
+                    ry = angle if axis.get("y") else 0
+                    rz = angle if axis.get("z") else 0
+                    
+                    if rx != 0 or ry != 0 or rz != 0:
+                        rotation_str = f"{rx:g},{ry:g},{rz:g}"
+
         element_entry = {
             "item": ce_id,
             "display-transform": "NONE",
@@ -453,6 +492,9 @@ class IAConverter(BaseConverter):
             "billboard": "FIXED",
             "translation": f"{translation_x:g},{translation_y:g},{translation_z:g}"
         }
+        
+        if rotation_str:
+            element_entry["rotation"] = rotation_str
 
         # 针对墙面家具的修正
         if placement_type == "wall":
@@ -584,6 +626,17 @@ class IAConverter(BaseConverter):
             hitboxes.append({
                 "type": "interaction",
                 "position": "0,-1,0",
+                "width": width,
+                "height": height,
+                "interactive": True,
+                "blocks-building": False
+            })
+
+        elif placement_type == "wall":
+            # 针对没有碰撞体积的情况下墙面家具要额外加入 position: 0,-0.5,0
+            hitboxes.append({
+                "type": "interaction",
+                "position": "0,-0.5,0",
                 "width": width,
                 "height": height,
                 "interactive": True,
