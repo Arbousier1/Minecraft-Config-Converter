@@ -1,5 +1,6 @@
 import os
 import yaml
+from src.utils.yaml_loader import safe_load_yaml
 
 class PackageAnalyzer:
     def __init__(self, extract_path):
@@ -64,42 +65,41 @@ class PackageAnalyzer:
 
     def _analyze_yaml(self, file_path):
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = yaml.safe_load(f)
-                if not data: return
+            data = safe_load_yaml(file_path)
+            if not data: return
 
-                # 检测格式 (现在是并行的，一个文件可能只属于一种格式，但整个包可能包含多种)
-                # 注意：这里我们移除了 elif，因为我们想全面扫描
-                # 不过通常单个 YAML 文件不太可能同时是两种格式的有效配置
-                # 但为了逻辑严谨，我们分别检测
+            # 检测格式 (现在是并行的，一个文件可能只属于一种格式，但整个包可能包含多种)
+            # 注意：这里我们移除了 elif，因为我们想全面扫描
+            # 不过通常单个 YAML 文件不太可能同时是两种格式的有效配置
+            # 但为了逻辑严谨，我们分别检测
+            
+            is_ia = self._is_ia_config(data)
+            is_ce = self._is_ce_config(data)
+            is_nexo = self._is_nexo_config(data)
+
+            if is_ia:
+                if "ItemsAdder" not in self.report["formats"]:
+                    self.report["formats"].append("ItemsAdder")
                 
-                is_ia = self._is_ia_config(data)
-                is_ce = self._is_ce_config(data)
-                is_nexo = self._is_nexo_config(data)
-
-                if is_ia:
-                    if "ItemsAdder" not in self.report["formats"]:
-                        self.report["formats"].append("ItemsAdder")
+                if "items" in data:
+                    self.report["completeness"]["items_config"] = True
+                    self.report["content_types"].add("装备")
+                    if isinstance(data["items"], dict):
+                        self.report["details"]["item_count"] += len(data["items"])
+                        # 进一步检测类型
+                        for item in data["items"].values():
+                            if "behaviours" in item:
+                                if "furniture" in item["behaviours"]:
+                                    self.report["content_types"].add("装饰")
+                                
+                if "categories" in data:
+                    self.report["completeness"]["categories_config"] = True
                     
-                    if "items" in data:
-                        self.report["completeness"]["items_config"] = True
-                        self.report["content_types"].add("装备")
-                        if isinstance(data["items"], dict):
-                            self.report["details"]["item_count"] += len(data["items"])
-                            # 进一步检测类型
-                            for item in data["items"].values():
-                                if "behaviours" in item:
-                                    if "furniture" in item["behaviours"]:
-                                        self.report["content_types"].add("装饰")
-                                    
-                    if "categories" in data:
-                        self.report["completeness"]["categories_config"] = True
-                        
-                if is_ce:
+            if is_ce:
                     if "CraftEngine" not in self.report["formats"]:
                         self.report["formats"].append("CraftEngine")
                         
-                if is_nexo:
+            if is_nexo:
                     if "Nexo" not in self.report["formats"]:
                         self.report["formats"].append("Nexo")
                 

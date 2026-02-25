@@ -10,9 +10,11 @@ import yaml
 
 # 导入核心逻辑
 import sys
+# 将项目根目录添加到 python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.converters.ia_to_ce import IAConverter
 from src.analyzer import PackageAnalyzer
+from src.utils.yaml_loader import safe_load_yaml
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'temp_uploads')
@@ -178,16 +180,15 @@ def convert():
                     if f.endswith(".yml") or f.endswith(".yaml"):
                         full_path = os.path.join(root, f)
                         try:
-                            with open(full_path, 'r', encoding='utf-8') as yml_file:
-                                data = yaml.safe_load(yml_file)
-                                if not data:
-                                    continue
-                                
-                                # 检查关键签名
-                                if "items" in data or "equipments" in data or "armors_rendering" in data:
-                                    ia_items_configs.append(full_path)
-                                elif "categories" in data:
-                                    ia_categories_configs.append(full_path)
+                            data = safe_load_yaml(full_path)
+                            if not data:
+                                continue
+                            
+                            # 检查关键签名
+                            if "items" in data or "equipments" in data or "armors_rendering" in data:
+                                ia_items_configs.append(full_path)
+                            elif "categories" in data:
+                                ia_categories_configs.append(full_path)
                         except Exception:
                             continue
 

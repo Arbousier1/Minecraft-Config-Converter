@@ -349,6 +349,9 @@ class IAConverter(BaseConverter):
         """
         if not model_path or not self.ia_resourcepack_root:
             return 0.5
+        
+        # 确保 model_path 是字符串
+        model_path = str(model_path)
             
         target_namespace = self.namespace
         clean_path = model_path
@@ -761,6 +764,9 @@ class IAConverter(BaseConverter):
         
         # 情况 1: 显式模型路径
         if model_path:
+            # 确保 model_path 是字符串
+            model_path = str(model_path)
+            
             # 如果 model_path 中包含命名空间 (例如 "namespace:path")，则移除命名空间部分
             # 因为 CraftEngine 会自动拼接当前命名空间，或者我们手动拼接时避免重复
             if ":" in model_path:

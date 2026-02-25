@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import os
 import yaml
+from src.utils.yaml_loader import safe_load_yaml
 
 class BaseConverter(ABC):
     def __init__(self):
@@ -31,8 +32,7 @@ class BaseConverter(ABC):
         :param file_path: 文件路径
         :return: 加载的数据
         """
-        with open(file_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+        return safe_load_yaml(file_path)
 
     def _write_yaml_with_footer(self, data, file_path):
         """
