@@ -3,6 +3,11 @@ import os
 import yaml
 from src.utils.yaml_loader import safe_load_yaml
 
+# 自定义 YAML Dumper 以确保列表缩进正确
+class IndentDumper(yaml.Dumper):
+    def increase_indent(self, flow=False, indentless=False):
+        return super(IndentDumper, self).increase_indent(flow, False)
+
 class BaseConverter(ABC):
     def __init__(self):
         self.config = {}
@@ -42,6 +47,6 @@ class BaseConverter(ABC):
         """
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         with open(file_path, 'w', encoding='utf-8') as f:
-            yaml.dump(data, f, sort_keys=False, allow_unicode=True, default_flow_style=False)
+            yaml.dump(data, f, Dumper=IndentDumper, sort_keys=False, allow_unicode=True, default_flow_style=False)
             f.write("\n#该配置由 MCC Tool 自动生成 \n")
             f.write("#MCC Tool由闲鱼店铺：快乐售货铺 提供\n")

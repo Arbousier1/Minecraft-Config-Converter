@@ -16,6 +16,8 @@ class IAConverter(BaseConverter):
         self.ia_resourcepack_root = None
         self.ce_resourcepack_root = None
         self.generated_models = {} # 存储需要生成的模型
+        self.armor_humanoid_keys = set()
+        self.armor_leggings_keys = set()
 
     def set_resource_paths(self, ia_root, ce_root):
         self.ia_resourcepack_root = ia_root
@@ -79,7 +81,9 @@ class IAConverter(BaseConverter):
             migrator = IAMigrator(
                 self.ia_resourcepack_root, 
                 self.ce_resourcepack_root, 
-                self.namespace
+                self.namespace,
+                self.armor_humanoid_keys,
+                self.armor_leggings_keys
             )
             migrator.migrate()
             
@@ -132,12 +136,7 @@ class IAConverter(BaseConverter):
         # 尝试寻找合适的图标 (第一个物品)
         icon = "minecraft:chest"
         if items_list:
-            first_item = self.ce_config["items"][items_list[0]]
-            # 如果物品有自定义模型，尝试使用该物品作为图标
-            if "model" in first_item:
-                 icon = items_list[0]
-            else:
-                 icon = first_item.get("material", "minecraft:chest")
+            icon = items_list[0]
 
         ce_category = {
             "name": f"<!i>{self.namespace.capitalize()}",
@@ -157,6 +156,51 @@ class IAConverter(BaseConverter):
     def _convert_items(self, items_data):
         for item_key, item_data in items_data.items():
             self._convert_item(item_key, item_data)
+    
+    def _normalize_equipment_key(self, raw_path):
+        if not raw_path:
+            return None
+        path = str(raw_path)
+        if ":" in path:
+            path = path.split(":", 1)[1]
+        if path.endswith(".png"):
+            path = path[:-4]
+        path = path.replace("\\", "/").lstrip("/")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        return path
+    
+    def _register_equipment_texture(self, raw_path, is_leggings=False):
+        key = self._normalize_equipment_key(raw_path)
+        if not key:
+            return
+        if is_leggings:
+            self.armor_leggings_keys.add(key)
+        else:
+            self.armor_humanoid_keys.add(key)
+    
+    def _normalize_equipment_texture_path(self, raw_path, is_leggings=False):
+        if not raw_path:
+            return f"{self.namespace}:entity/equipment/humanoid/unknown"
+        path = str(raw_path)
+        if ":" in path:
+            path = path.split(":", 1)[1]
+        if path.endswith(".png"):
+            path = path[:-4]
+        path = path.replace("\\", "/").lstrip("/")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        parts = [p for p in path.split("/") if p]
+        excluded = {"textures", "entity", "equipment", "humanoid", "humanoid_legging", "humanoid_leggings", "armor", "armour"}
+        if not parts:
+            subpath = "unknown"
+        else:
+            basename = parts[-1]
+            prefix = [p for p in parts[:-1] if p.lower() not in excluded]
+            subpath = "/".join(prefix + [basename]) if basename else "/".join(prefix)
+        target_folder = "humanoid_legging" if is_leggings else "humanoid"
+        final_path = f"entity/equipment/{target_folder}/{subpath}" if subpath else f"entity/equipment/{target_folder}"
+        return f"{self.namespace}:{final_path}"
 
     def _convert_categories(self, categories_data):
         """
@@ -181,13 +225,25 @@ class IAConverter(BaseConverter):
                     ce_items.append(f"{self.namespace}:{item}")
 
             # 映射图标
-            icon = cat_data.get("icon", "minecraft:stone")
-            if ":" in icon:
-                 parts = icon.split(":")
-                 if len(parts) == 2 and parts[0] != "minecraft":
-                      icon = f"{self.namespace}:{parts[1]}"
-            else:
-                 icon = f"{self.namespace}:{icon}"
+            # 逻辑变更：优先使用列表中的第一个物品作为图标
+            # 检查第一个物品是否存在于 ce_config['items'] 中
+            icon = None
+            if ce_items:
+                potential_icon = ce_items[0]
+                # 移除命名空间进行检查 (如果存在)
+                check_id = potential_icon
+                if check_id in self.ce_config["items"]:
+                    icon = potential_icon
+            
+            if not icon:
+                # 只有当列表为空或第一个物品无效时，才尝试使用配置中的 icon 或默认值
+                icon = cat_data.get("icon", "minecraft:stone")
+                if ":" in icon:
+                     parts = icon.split(":")
+                     if len(parts) == 2 and parts[0] != "minecraft":
+                          icon = f"{self.namespace}:{parts[1]}"
+                elif icon != "minecraft:stone":
+                     icon = f"{self.namespace}:{icon}"
 
             ce_category = {
                 "name": f"<!i>{cat_data.get('name', cat_key)}",
@@ -276,10 +332,10 @@ class IAConverter(BaseConverter):
         if equipment_id:
             # 如果材质是默认的 STONE，更新材质以确保其可穿戴
             if ce_item["material"] == "STONE":
-                if slot == "head": ce_item["material"] = "LEATHER_HELMET"
-                elif slot == "chest": ce_item["material"] = "LEATHER_CHESTPLATE"
-                elif slot == "legs": ce_item["material"] = "LEATHER_LEGGINGS"
-                elif slot == "feet": ce_item["material"] = "LEATHER_BOOTS"
+                if slot == "head": ce_item["material"] = "DIAMOND_HELMET"
+                elif slot == "chest": ce_item["material"] = "DIAMOND_CHESTPLATE"
+                elif slot == "legs": ce_item["material"] = "DIAMOND_LEGGINGS"
+                elif slot == "feet": ce_item["material"] = "DIAMOND_BOOTS"
             
             # 处理 ID 中可能存在的命名空间
             # 形式: namespace:id -> 移除 namespace 部分
@@ -715,6 +771,18 @@ class IAConverter(BaseConverter):
         
         resource = ia_data.get("resource", {})
         base_model_path = resource.get("model_path", "")
+        textures = resource.get("textures")
+        if not textures and resource.get("texture"):
+            val = resource.get("texture")
+            if isinstance(val, list):
+                textures = val
+            else:
+                textures = [val]
+        
+        if material in ["BOW", "CROSSBOW"] and textures:
+            expanded_textures = self._expand_bow_textures(textures)
+            ce_item["textures"] = self._normalize_textures_for_item(expanded_textures, ce_item)
+            return
         
         if material == "BOW":
             template_def = {
@@ -801,6 +869,78 @@ class IAConverter(BaseConverter):
             "arguments": args
         }
 
+    def _expand_bow_textures(self, textures):
+        if not textures:
+            return textures
+        cleaned = []
+        for tex in textures:
+            tex_str = str(tex)
+            if tex_str.lower().endswith(".png"):
+                tex_str = tex_str[:-4]
+            tex_str = tex_str.replace("\\", "/")
+            if ":" in tex_str:
+                tex_str = tex_str.split(":", 1)[1]
+            if tex_str.startswith("textures/"):
+                tex_str = tex_str[len("textures/"):]
+            cleaned.append(tex_str)
+        
+        base = cleaned[0]
+        style = "numeric"
+        for tex_str in cleaned:
+            if tex_str.endswith("_pulling_0"):
+                base = tex_str[:-len("_pulling_0")]
+                style = "pulling"
+                break
+        if style == "numeric":
+            for tex_str in cleaned:
+                if tex_str.endswith("_0"):
+                    base = tex_str[:-2]
+                    break
+        
+        if style == "pulling":
+            variants = [f"{base}_pulling_0", f"{base}_pulling_1", f"{base}_pulling_2"]
+        else:
+            variants = [f"{base}_0", f"{base}_1", f"{base}_2"]
+        
+        expanded = []
+        for item in [base] + variants + cleaned:
+            if item not in expanded:
+                expanded.append(item)
+        return expanded
+
+    def _normalize_textures_for_item(self, textures, ce_item):
+        ce_textures = []
+        is_armor_item = self._is_armor(ce_item.get("material", ""))
+        for tex in textures:
+            tex_str = str(tex)
+            if tex_str.lower().endswith(".png"):
+                tex_str = tex_str[:-4]
+            
+            tex_str = tex_str.replace("\\", "/")
+            
+            if ":" in tex_str:
+                tex_str = tex_str.split(":", 1)[1]
+                
+            if tex_str.startswith("textures/"):
+                tex_str = tex_str[len("textures/"):]
+                
+            if is_armor_item:
+                if tex_str.startswith("item/armor/"):
+                    final_path = tex_str
+                else:
+                    if tex_str.startswith("item/"):
+                        tex_str = tex_str[len("item/"):]
+                    if tex_str.startswith("armor/"):
+                        tex_str = tex_str[len("armor/"):]
+                    final_path = f"item/armor/{tex_str}"
+            else:
+                if not tex_str.startswith("item/") and not tex_str.startswith("block/"):
+                    tex_str = f"item/{tex_str}"
+                final_path = tex_str
+                
+            ce_textures.append(f"{self.namespace}:{final_path}")
+        return ce_textures
+
     def _handle_generic_model(self, ce_item, resource):
         model_path = resource.get("model_path")
         
@@ -830,8 +970,8 @@ class IAConverter(BaseConverter):
                 "path": f"{self.namespace}:{final_path}"
             }
         
-        # 情况 2: 从纹理生成模型
-        elif resource.get("generate") is True:
+        # 情况 2: 处理纹理 (不再生成模型，直接使用 textures)
+        else:
             textures = resource.get("textures")
             
             # 兼容 "texture" 字段 
@@ -843,34 +983,11 @@ class IAConverter(BaseConverter):
                     textures = [val]
 
             if textures:
-                # 使用第一个纹理路径作为模型路径的基础
+                ce_item["textures"] = self._normalize_textures_for_item(textures, ce_item)
                 
-                texture_path = textures[0]
-                # 如果存在 .png 扩展名则移除 
-                if texture_path.endswith(".png"):
-                    texture_path = texture_path[:-4]
-                    
-                # 检查 texture_path 是否已经包含 item/ 前缀，避免双重嵌套
-                parts = texture_path.split("/")
-                if parts[0] == "item":
-                    final_path = texture_path
-                else:
-                    final_path = f"item/{texture_path}"
-                    
-                ce_item["model"] = {
-                    "type": "minecraft:model",
-                    "path": f"{self.namespace}:{final_path}"
-                }
-
-                # 注册此模型以进行生成
-                
-                model_key = f"{final_path}.json"
-                self.generated_models[model_key] = {
-                    "parent": "minecraft:item/generated",
-                    "textures": {
-                        "layer0": f"{self.namespace}:{final_path}"
-                    }
-                }
+                # 之前生成模型的代码已移除
+                # if textures:
+                #     # ... (旧代码)
 
     def _convert_equipments(self, equipments_data):
         for eq_key, eq_data in equipments_data.items():
@@ -882,9 +999,11 @@ class IAConverter(BaseConverter):
             }
             
             if "layer_1" in eq_data:
-                ce_eq["humanoid"] = f"{self.namespace}:{eq_data['layer_1']}"
+                self._register_equipment_texture(eq_data["layer_1"], is_leggings=False)
+                ce_eq["humanoid"] = self._normalize_equipment_texture_path(eq_data["layer_1"], is_leggings=False)
             if "layer_2" in eq_data:
-                ce_eq["humanoid-leggings"] = f"{self.namespace}:{eq_data['layer_2']}"
+                self._register_equipment_texture(eq_data["layer_2"], is_leggings=True)
+                ce_eq["humanoid-leggings"] = self._normalize_equipment_texture_path(eq_data["layer_2"], is_leggings=True)
                 
             self.ce_config["equipments"][ce_eq_id] = ce_eq
 
@@ -901,21 +1020,13 @@ class IAConverter(BaseConverter):
             
             # 映射 layer_1 -> humanoid
             if "layer_1" in armor_data:
-                # IA: armor/layer_1
-                # CE: namespace:armor/layer_1 
-                layer_1_path = armor_data["layer_1"]
-
-                if layer_1_path.endswith(".png"):
-                     layer_1_path = layer_1_path[:-4]
-                
-                ce_entry["humanoid"] = f"{self.namespace}:{layer_1_path}"
+                self._register_equipment_texture(armor_data["layer_1"], is_leggings=False)
+                ce_entry["humanoid"] = self._normalize_equipment_texture_path(armor_data["layer_1"], is_leggings=False)
 
             # 映射 layer_2 -> humanoid-leggings
             if "layer_2" in armor_data:
-                layer_2_path = armor_data["layer_2"]
-                if layer_2_path.endswith(".png"):
-                     layer_2_path = layer_2_path[:-4]
-                ce_entry["humanoid-leggings"] = f"{self.namespace}:{layer_2_path}"
+                self._register_equipment_texture(armor_data["layer_2"], is_leggings=True)
+                ce_entry["humanoid-leggings"] = self._normalize_equipment_texture_path(armor_data["layer_2"], is_leggings=True)
 
             self.ce_config["equipments"][ce_key] = ce_entry
 
