@@ -143,6 +143,7 @@ def convert():
             # 改进逻辑: 扫描所有 YAML 文件并根据内容进行分类
             ia_items_configs = []
             ia_categories_configs = []
+            ia_recipes_configs = []
             ia_resourcepack_path = None
 
             # 0. 确定扫描根目录
@@ -187,8 +188,10 @@ def convert():
                             # 检查关键签名
                             if "items" in data or "equipments" in data or "armors_rendering" in data:
                                 ia_items_configs.append(full_path)
-                            elif "categories" in data:
+                            if "categories" in data:
                                 ia_categories_configs.append(full_path)
+                            if "recipes" in data:
+                                ia_recipes_configs.append(full_path)
                         except Exception:
                             continue
 
@@ -205,7 +208,7 @@ def convert():
             converter = IAConverter()
             
             # 加载并合并所有物品配置
-            merged_items_data = {"items": {}, "equipments": {}, "armors_rendering": {}, "templates": {}, "info": {}}
+            merged_items_data = {"items": {}, "equipments": {}, "armors_rendering": {}, "templates": {}, "recipes": {}, "info": {}}
             
             for config_path in ia_items_configs:
                 data = converter.load_config(config_path)
@@ -239,6 +242,25 @@ def convert():
                 
                 if merged_categories:
                     ia_data["categories"] = merged_categories
+
+            if ia_recipes_configs:
+                merged_recipes = {}
+                for recipe_config in ia_recipes_configs:
+                    data = converter.load_config(recipe_config)
+                    if not data:
+                        continue
+                    if "info" in data and not ia_data.get("info"):
+                        ia_data["info"] = data["info"]
+                    recipes_block = data.get("recipes")
+                    if not isinstance(recipes_block, dict):
+                        continue
+                    for group_key, group_data in recipes_block.items():
+                        if group_key not in merged_recipes:
+                            merged_recipes[group_key] = {}
+                        if isinstance(group_data, dict):
+                            merged_recipes[group_key].update(group_data)
+                if merged_recipes:
+                    ia_data["recipes"] = merged_recipes
 
             # 准备输出路径
             # CraftEngine 输出结构: resources/<namespace>/...

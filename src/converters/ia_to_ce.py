@@ -1,7 +1,7 @@
 import os
 import json
 from turtle import position
-from .base import BaseConverter
+from .base import BaseConverter, RecipeDumper
 from src.migrators.ia_to_ce import IAMigrator
 
 class IAConverter(BaseConverter):
@@ -11,7 +11,8 @@ class IAConverter(BaseConverter):
             "items": {},
             "equipments": {},
             "templates": {},
-            "categories": {}
+            "categories": {},
+            "recipes": {}
         }
         self.ia_resourcepack_root = None
         self.ce_resourcepack_root = None
@@ -76,6 +77,10 @@ class IAConverter(BaseConverter):
             cat_data = {"categories": self.ce_config["categories"]}
             self._write_yaml_with_footer(cat_data, os.path.join(output_dir, "categories.yml"))
 
+        if self.ce_config["recipes"]:
+            recipe_data = {"recipes": self.ce_config["recipes"]}
+            self._write_yaml_with_footer(recipe_data, os.path.join(output_dir, "recipe.yml"), dumper=RecipeDumper)
+
         # 如果设置了路径，触发资源迁移
         if self.ia_resourcepack_root and self.ce_resourcepack_root:
             migrator = IAMigrator(
@@ -117,6 +122,9 @@ class IAConverter(BaseConverter):
         # 转换分类
         if "categories" in ia_data:
             self._convert_categories(ia_data["categories"])
+
+        if "recipes" in ia_data:
+            self._convert_recipes(ia_data["recipes"])
         
         # 自动生成分类 (如果不存在)
         if not self.ce_config["categories"] and self.ce_config["items"]:
@@ -294,6 +302,199 @@ class IAConverter(BaseConverter):
             self._handle_generic_model(ce_item, resource)
 
         self.ce_config["items"][ce_id] = ce_item
+
+    def _convert_recipes(self, recipes_data):
+        if not isinstance(recipes_data, dict):
+            return
+        for group_key, group_data in recipes_data.items():
+            if not isinstance(group_data, dict):
+                continue
+            for recipe_key, recipe_data in group_data.items():
+                if not isinstance(recipe_data, dict):
+                    continue
+                if recipe_data.get("enabled") is False:
+                    continue
+                ce_recipe_id = self._normalize_recipe_id(recipe_key)
+                if not ce_recipe_id:
+                    continue
+                ce_recipe = {}
+                ce_type = self._map_recipe_type(group_key, recipe_data)
+                if ce_type:
+                    ce_recipe["type"] = ce_type
+                if ce_type == "shaped":
+                    pattern = recipe_data.get("pattern")
+                    ingredients = recipe_data.get("ingredients", {})
+                    if pattern:
+                        ce_recipe["pattern"] = self._normalize_pattern(pattern, ingredients)
+                    if ingredients:
+                        ce_recipe["ingredients"] = {
+                            k: self._normalize_recipe_item(v) for k, v in ingredients.items()
+                        }
+                elif ce_type == "shapeless":
+                    ingredients = recipe_data.get("ingredients", [])
+                    ce_recipe["ingredients"] = self._normalize_shapeless_ingredients(ingredients)
+                elif ce_type in ["smelting", "blasting", "smoking", "campfire_cooking"]:
+                    ingredient = recipe_data.get("ingredient")
+                    if ingredient is None:
+                        ingredient = recipe_data.get("ingredients")
+                    if isinstance(ingredient, list):
+                        ingredient = ingredient[0] if ingredient else None
+                    if ingredient is not None:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    experience = recipe_data.get("experience")
+                    if experience is not None:
+                        ce_recipe["experience"] = experience
+                    time_val = recipe_data.get("time")
+                    if time_val is None:
+                        time_val = recipe_data.get("cookingTime")
+                    if time_val is not None:
+                        ce_recipe["time"] = time_val
+                    category = recipe_data.get("category")
+                    if category:
+                        ce_recipe["category"] = category
+                    group_val = recipe_data.get("group")
+                    if group_val:
+                        ce_recipe["group"] = group_val
+                elif ce_type == "stonecutting":
+                    ingredient = recipe_data.get("ingredient")
+                    if ingredient is not None:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    group_val = recipe_data.get("group")
+                    if group_val:
+                        ce_recipe["group"] = group_val
+                elif ce_type == "smithing_transform":
+                    template = recipe_data.get("template") or recipe_data.get("template-type")
+                    base = recipe_data.get("base")
+                    addition = recipe_data.get("addition")
+                    if template:
+                        ce_recipe["template-type"] = self._normalize_recipe_item(template)
+                    if base:
+                        ce_recipe["base"] = self._normalize_recipe_item(base)
+                    if addition:
+                        ce_recipe["addition"] = self._normalize_recipe_item(addition)
+                    merge_components = recipe_data.get("merge-components")
+                    if merge_components is not None:
+                        ce_recipe["merge-components"] = merge_components
+                elif ce_type == "brewing":
+                    ingredient = recipe_data.get("ingredient")
+                    container = recipe_data.get("container")
+                    if ingredient:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    if container:
+                        ce_recipe["container"] = self._normalize_recipe_item(container)
+
+                result = recipe_data.get("result")
+                if result is not None:
+                    result_id = None
+                    result_count = None
+                    if isinstance(result, dict):
+                        result_id = result.get("item") or result.get("id")
+                        result_count = result.get("amount") or result.get("count")
+                    else:
+                        result_id = result
+                    if result_id is not None:
+                        ce_result = {"id": self._normalize_recipe_item(result_id)}
+                        if result_count is None:
+                            result_count = 1
+                        ce_result["count"] = result_count
+                        ce_recipe["result"] = ce_result
+
+                if ce_recipe:
+                    self.ce_config["recipes"][ce_recipe_id] = ce_recipe
+
+    def _normalize_recipe_id(self, raw_id):
+        if not raw_id:
+            return None
+        raw_id = str(raw_id)
+        if ":" in raw_id:
+            return raw_id
+        return f"{self.namespace}:{raw_id}"
+
+    def _normalize_recipe_item(self, value):
+        if value is None:
+            return value
+        if isinstance(value, dict):
+            item_id = value.get("item") or value.get("id")
+            if item_id is None:
+                return None
+            return self._normalize_recipe_item(item_id)
+        if isinstance(value, str):
+            item = value.strip()
+            if not item:
+                return item
+            if item.startswith("#"):
+                tag = item[1:]
+                if ":" in tag:
+                    ns, path = tag.split(":", 1)
+                    if ns == "minecraft":
+                        return f"#minecraft:{path.lower()}"
+                    return f"#{ns}:{path}"
+                return f"#minecraft:{tag.lower()}"
+            if ":" in item:
+                ns, path = item.split(":", 1)
+                if ns == "minecraft":
+                    return f"minecraft:{path.lower()}"
+                return f"{ns}:{path}"
+            return f"minecraft:{item.lower()}"
+        return value
+
+    def _normalize_pattern(self, pattern, ingredients):
+        if not isinstance(pattern, list):
+            return pattern
+        keys = set(ingredients.keys()) if isinstance(ingredients, dict) else set()
+        normalized = []
+        for row in pattern:
+            row_str = str(row)
+            if not keys:
+                normalized.append(row_str)
+                continue
+            new_row = "".join(ch if ch in keys else " " for ch in row_str)
+            normalized.append(new_row)
+        return normalized
+
+    def _normalize_shapeless_ingredients(self, ingredients):
+        if isinstance(ingredients, list):
+            normalized = []
+            for item in ingredients:
+                if isinstance(item, list):
+                    normalized.append([self._normalize_recipe_item(x) for x in item])
+                else:
+                    normalized.append(self._normalize_recipe_item(item))
+            return normalized
+        if isinstance(ingredients, dict):
+            return [self._normalize_recipe_item(v) for v in ingredients.values()]
+        return ingredients
+
+    def _map_recipe_type(self, group_key, recipe_data):
+        group = str(group_key).lower()
+        if isinstance(recipe_data, dict):
+            if recipe_data.get("shapeless") is True:
+                return "shapeless"
+        mapping = {
+            "crafting_table": "shaped",
+            "shapeless": "shapeless",
+            "shapeless_crafting": "shapeless",
+            "furnace": "smelting",
+            "smelting": "smelting",
+            "blast_furnace": "blasting",
+            "blasting": "blasting",
+            "smoker": "smoking",
+            "smoking": "smoking",
+            "campfire": "campfire_cooking",
+            "campfire_cooking": "campfire_cooking",
+            "stonecutting": "stonecutting",
+            "smithing": "smithing_transform",
+            "smithing_transform": "smithing_transform",
+            "brewing": "brewing"
+        }
+        if group in mapping:
+            return mapping[group]
+        if isinstance(recipe_data, dict):
+            if "pattern" in recipe_data:
+                return "shaped"
+            if isinstance(recipe_data.get("ingredients"), list):
+                return "shapeless"
+        return None
 
     def _is_armor(self, material, ia_data=None):
         suffixes = ["_HELMET", "_CHESTPLATE", "_LEGGINGS", "_BOOTS"]
