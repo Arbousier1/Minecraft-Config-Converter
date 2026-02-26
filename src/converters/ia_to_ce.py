@@ -530,39 +530,41 @@ class IAConverter(BaseConverter):
         #将家具拆分为多个 1x1 的 Shulker 碰撞箱
         # 墙面家具不需要碰撞箱
         hitboxes = []
-        if "hitbox" in furniture_data and placement_type != "wall":
+        
+        # 获取 IA 偏移 (如果有 hitbox 定义)
+        w_offset = 0
+        h_offset = 0
+        l_offset = 0
+        
+        has_hitbox_def = "hitbox" in furniture_data
+        if has_hitbox_def:
             ia_hitbox = furniture_data["hitbox"]
-            is_solid = furniture_data.get("solid", True)
-            
-            # 获取 IA 偏移
             w_offset = ia_hitbox.get("width_offset", 0)
             h_offset = ia_hitbox.get("height_offset", 0)
             l_offset = ia_hitbox.get("length_offset", 0)
-            
-            # 天花板家具修正：Hitbox 需要向下移动
-            if placement_type == "ceiling":
-                h_offset -= height
-            
-            # 只有 solid 的家具才生成 shulker 碰撞箱矩阵
-            # 非 solid 的家具可能需要 interaction 类型 (暂不处理或生成单个)
-            # 特殊情况: 如果是可坐的 (sit_data)，使用 interaction 类型以支持座位
-            # 并且根据 solid 属性设置 blocks-building
+
+        # 天花板家具修正：Hitbox 需要向下移动
+        if placement_type == "ceiling":
+            h_offset -= height
+
+        is_solid = furniture_data.get("solid", True)
+        
+        # 逻辑修改: 即使没有 hitbox 定义，只要有 sit_data，也应该生成交互碰撞箱
+        # 或者如果有 hitbox 定义
+        
+        if placement_type != "wall":
             if sit_data:
                 # 提取座位高度
-                
                 ia_sit_height = sit_data.get("sit_height", 0.5)
+                # 修正: 保持原有的计算逻辑，但移除 hitbox 依赖
                 ce_seat_y = ia_sit_height - 0.85
                 
                 # 根据 width 生成多个座位
-                # 逻辑：在 X 轴上分布座位
                 seats = []
                 w_range = int(round(width))
                 if w_range <= 1:
                     seats.append(f"0,{ce_seat_y:g},0")
                 else:
-                    # 居中分布
-                    # 例如 width=3: -1, 0, 1
-                    # width=2: -0.5, 0.5
                     for i in range(w_range):
                         offset_x = i - (w_range - 1) / 2.0
                         seats.append(f"{offset_x:g},{ce_seat_y:g},0")
@@ -576,63 +578,54 @@ class IAConverter(BaseConverter):
                     "interactive": True,
                     "seats": seats
                 })
+            
+            elif has_hitbox_def:
+                if is_solid:
+                    # 遍历体积生成 1x1 碰撞箱
+                    w_range = int(round(width))
+                    h_range = int(round(height))
+                    l_range = int(round(length))
+                    
+                    w_range = max(1, w_range)
+                    h_range = max(1, h_range)
+                    l_range = max(1, l_range)
 
-            elif is_solid:
-                # 遍历体积生成 1x1 碰撞箱
-                # width -> x, height -> y, length -> z
-                # 确保转换为整数循环范围
-                w_range = int(round(width))
-                h_range = int(round(height))
-                l_range = int(round(length))
-                
-                # 如果尺寸小于 1，至少生成 1 个
-                w_range = max(1, w_range)
-                h_range = max(1, h_range)
-                l_range = max(1, l_range)
+                    for y in range(h_range):
+                        for x in range(w_range):
+                            for z in range(l_range):
+                                rel_x = x - (w_range - 1) / 2.0
+                                rel_y = y 
+                                rel_z = z - (l_range - 1) / 2.0
+                                
+                                final_x = rel_x + w_offset
+                                final_y = rel_y + h_offset
+                                final_z = rel_z + l_offset
+                                
+                                import math
+                                final_x = math.floor(final_x + 0.5)
+                                final_y = math.floor(final_y + 0.5)
+                                final_z = math.floor(final_z + 0.5)
+                                
+                                pos_str = f"{int(final_x)},{int(final_y)},{int(final_z)}"
+                                
+                                hitboxes.append({
+                                    "position": pos_str,
+                                    "type": "shulker",
+                                    "blocks-building": True,
+                                    "interactive": True
+                                })
+                else:
+                    # 非实体，生成一个交互框
+                    hitboxes.append({
+                        "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
+                        "type": "interaction",
+                        "blocks-building": False,
+                        "width": width,
+                        "height": height,
+                        "interactive": True
+                    })
 
-                for y in range(h_range):
-                    for x in range(w_range):
-                        for z in range(l_range):
-                            # 计算相对中心的位置
-                            # 居中逻辑: (i - (count - 1) / 2)
-                            
-                            rel_x = x - (w_range - 1) / 2.0
-                            rel_y = y 
-                            
-                            rel_z = z - (l_range - 1) / 2.0
-                            
-                            # 应用偏移
-                            final_x = rel_x + w_offset
-                            final_y = rel_y + h_offset
-                            final_z = rel_z + l_offset
-                            
-                            # Shulker 位置应该是整数
-                            # 使用标准四舍五入逻辑: floor(x + 0.5)
-                            import math
-                            final_x = math.floor(final_x + 0.5)
-                            final_y = math.floor(final_y + 0.5)
-                            final_z = math.floor(final_z + 0.5)
-                            
-                            pos_str = f"{int(final_x)},{int(final_y)},{int(final_z)}"
-                            
-                            hitboxes.append({
-                                "position": pos_str,
-                                "type": "shulker",
-                                "blocks-building": True,
-                                "interactive": True
-                            })
-            else:
-                # 非实体，生成一个交互框
-                hitboxes.append({
-                    "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
-                    "type": "interaction",
-                    "blocks-building": False,
-                    "width": width,
-                    "height": height,
-                    "interactive": True
-                })
-
-        elif placement_type == "ceiling":
+        if placement_type == "ceiling" and not hitboxes:
             # 针对没有碰撞体积的情况下天花板家具要额外加入 position: 0,-1,0
             hitboxes.append({
                 "type": "interaction",
@@ -643,7 +636,7 @@ class IAConverter(BaseConverter):
                 "blocks-building": False
             })
 
-        elif placement_type == "wall":
+        elif placement_type == "wall" and not hitboxes:
             # 针对没有碰撞体积的情况下墙面家具要额外加入 position: 0,-0.5,0
             hitboxes.append({
                 "type": "interaction",
