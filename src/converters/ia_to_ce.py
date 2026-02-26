@@ -670,6 +670,48 @@ class IAConverter(BaseConverter):
              return f"{self.namespace}:{path}"
         return f"{self.namespace}:item/{path}"
 
+    def _find_model_path_variant(self, base_path, variants):
+        """
+        在资源包中查找存在的模型变体。
+        base_path: 基础模型路径 (e.g. "namespace:path/to/bow")
+        variants: 候选后缀列表 (e.g. ["_0", "_pulling_0"])
+        
+        返回: 找到的第一个存在的路径 (添加了后缀的完整路径)，如果都没找到，返回默认的第一个变体路径。
+        """
+        if not self.ia_resourcepack_root:
+             return f"{base_path}{variants[0]}"
+             
+        # 解析 base_path
+        # 可能是 "namespace:path" 或 "path" (使用 self.namespace)
+        if ":" in base_path:
+            ns, rel_path = base_path.split(":", 1)
+        else:
+            ns = self.namespace
+            rel_path = base_path
+        
+        # 确保移除 .json
+        if rel_path.endswith(".json"):
+            rel_path = rel_path[:-5]
+            
+        # 尝试每个变体
+        for suffix in variants:
+            check_path = f"{rel_path}{suffix}"
+            
+            # 1. 尝试 assets/<namespace>/models/<check_path>.json
+            full_path = os.path.join(self.ia_resourcepack_root, "assets", ns, "models", f"{check_path}.json")
+            if os.path.exists(full_path):
+                 return check_path if ":" not in base_path else f"{ns}:{check_path}"
+                 
+            # 2. 尝试 <namespace>/models/<check_path>.json (非标准)
+            full_path_2 = os.path.join(self.ia_resourcepack_root, ns, "models", f"{check_path}.json")
+            if os.path.exists(full_path_2):
+                 return check_path if ":" not in base_path else f"{ns}:{check_path}"
+
+        # 如果都没找到，返回默认 (第一个变体)
+        # 移除 .json 后缀确保路径干净
+        base_clean = base_path[:-5] if base_path.endswith(".json") else base_path
+        return f"{base_clean}{variants[0]}"
+
     def _handle_complex_item(self, ce_item, key, ia_data, material):
         # 为此物品创建一个模板
         template_id = f"models:{self.namespace}_{key}_model"
@@ -699,9 +741,12 @@ class IAConverter(BaseConverter):
             }
             # 推断路径
             args["bow_model"] = self._get_model_ref(base_model_path)
-            args["bow_pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
-            args["bow_pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
-            args["bow_pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
+            
+            # 动态查找 pulling_0, pulling_1, pulling_2
+            # 优先级: _pulling_0 (IA常用), _0 (原版风格)
+            args["bow_pulling_0_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_0", "_0"]))
+            args["bow_pulling_1_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_1", "_1"]))
+            args["bow_pulling_2_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_2", "_2"]))
 
         elif material == "CROSSBOW":
             template_def = {
@@ -727,11 +772,12 @@ class IAConverter(BaseConverter):
                 }
             }
             args["model"] = self._get_model_ref(base_model_path)
-            args["arrow_model"] = self._get_model_ref(f"{base_model_path}_charged")
-            args["firework_model"] = self._get_model_ref(f"{base_model_path}_firework")
-            args["pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
-            args["pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
-            args["pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
+            args["arrow_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_charged", "_arrow"]))
+            args["firework_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_firework", "_rocket"]))
+            
+            args["pulling_0_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_0", "_0"]))
+            args["pulling_1_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_1", "_1"]))
+            args["pulling_2_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_2", "_2"]))
             
         elif material == "SHIELD":
             template_def = {
