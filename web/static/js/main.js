@@ -217,14 +217,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 <div class="plugin-selection-container">
                     <div class="plugin-column">
-                        <h4>Origin (desde)</h4>
+                        <h4>源插件</h4>
                         <div class="plugin-grid" id="source-plugins-grid">
                             ${generatePluginGrid(true)}
                         </div>
                     </div>
                     <div class="arrow-separator">➜</div>
                     <div class="plugin-column">
-                        <h4>Destino (hacia)</h4>
+                        <h4>目标插件</h4>
                         <div class="plugin-grid" id="target-plugins-grid">
                             ${generatePluginGrid(false)}
                         </div>
