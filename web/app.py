@@ -21,6 +21,16 @@ app.config['UPLOAD_FOLDER'] = os.path.join(os.getcwd(), 'temp_uploads')
 app.config['OUTPUT_FOLDER'] = os.path.join(os.getcwd(), 'temp_output')
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB 限制
 
+# 支持的插件列表
+SUPPORTED_PLUGINS = [
+    {"id": "ItemsAdder", "name": "ItemsAdder", "icon": "/static/images/itemsadder.webp"},
+    {"id": "Nexo", "name": "Nexo", "icon": "/static/images/nexo.webp"},
+    {"id": "Oraxen", "name": "Oraxen", "icon": "/static/images/oraxen.webp"},
+    {"id": "CraftEngine", "name": "CraftEngine", "icon": "/static/images/craftengine.webp"},
+    {"id": "MythicCrucible", "name": "MythicCrucible", "icon": "/static/images/mythiccrucible.webp"}
+    # {"id": "HMCCosmetics", "name": "HMCCosmetics", "icon": "👒"}
+]
+
 # 确保临时目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
@@ -83,6 +93,7 @@ def analyze():
             report["available_targets"] = available_targets
             report["warnings"] = warnings
             report["filename"] = filename
+            report["supported_plugins"] = SUPPORTED_PLUGINS
             
             return jsonify({
                 'status': 'success',
@@ -375,21 +386,12 @@ from threading import Timer, Lock
 @app.route('/api/shutdown', methods=['POST'])
 def shutdown():
     """关闭服务器"""
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        # 如果不是使用 Werkzeug 运行 (例如生产环境 WSGI)，这可能会失败或需要替代方案
-        # 但对于本地 PyInstaller 使用，通常是 Werkzeug。
-        # 替代方案: sys.exit()
-        import sys
-        import threading
+    def kill():
+        # 强制退出进程 (os._exit 能够终止整个进程，而 sys.exit 在线程中只终止线程)
+        os._exit(0)
         
-        def kill():
-            sys.exit(0)
-            
-        threading.Timer(1.0, kill).start()
-        return jsonify({'status': 'server shutting down...'})
-        
-    func()
+    # 延迟 1 秒执行，以便返回响应给前端
+    Timer(1.0, kill).start()
     return jsonify({'status': 'server shutting down...'})
 
 def open_browser():
