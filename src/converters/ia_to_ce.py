@@ -282,6 +282,12 @@ class IAConverter(BaseConverter):
             }
         }
         
+        lore_value = data.get("lore")
+        if lore_value is not None:
+            ce_lore = self._normalize_lore(lore_value)
+            if ce_lore is not None:
+                ce_item["data"]["lore"] = ce_lore
+        
         if "model_id" in resource:
             ce_item["data"]["custom-model-data"] = resource["model_id"]
 
@@ -1243,3 +1249,13 @@ class IAConverter(BaseConverter):
              default_color = "<#FFCF20>"
              
         return f"<!i>{default_color}{name}"
+
+    def _normalize_lore(self, lore_value):
+        # 将 lore 转为字符串列表，保持内容原样
+        if lore_value is None:
+            return None
+        if isinstance(lore_value, list):
+            return [str(line) for line in lore_value]
+        if isinstance(lore_value, str):
+            return [lore_value]
+        return None
