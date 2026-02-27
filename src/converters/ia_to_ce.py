@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from turtle import position
 from .base import BaseConverter, RecipeDumper
 from src.migrators.ia_to_ce import IAMigrator
@@ -253,8 +254,13 @@ class IAConverter(BaseConverter):
                 elif icon != "minecraft:stone":
                      icon = f"{self.namespace}:{icon}"
 
+            # Remove Minecraft color codes (e.g. §6) from category name
+            cat_name = cat_data.get('name', cat_key)
+            if isinstance(cat_name, str):
+                cat_name = re.sub(r'§[0-9a-fk-or]', '', cat_name)
+
             ce_category = {
-                "name": f"<!i>{cat_data.get('name', cat_key)}",
+                "name": f"<!i>{cat_name}",
                 "lore": [
                     "<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 生成",
                     "<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
