@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
     - name: Checkout code
@@ -30,11 +30,14 @@ jobs:
     - name: Build all packages
       run: go build -mod=mod ./...
 
+    - name: Create dist directory
+      run: New-Item -ItemType Directory -Force dist | Out-Null
+
     - name: Build application binary
-      run: go build -mod=mod -o dist/mcc ./cmd/mcc
+      run: go build -mod=mod -o dist/mcc.exe ./cmd/mcc
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mcc-go-rewrite
-        path: dist/mcc
+        name: mcc-go-rewrite-windows
+        path: dist/mcc.exe
