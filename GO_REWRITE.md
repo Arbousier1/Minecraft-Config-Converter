@@ -1,29 +1,24 @@
-# Go Rewrite Branch
+# Go Branch Status
 
 Branch: `rewrite/go`
 
 ## Status
 
-This branch starts the Go rewrite without deleting the original Python code.
+这个分支现在按纯 Go 结构维护，不再保留 Python 参考实现或 Python 打包链路。
 
-Implemented:
-- Go module setup in `go.mod`
-- HTTP server entrypoint in `cmd/mcc/main.go`
-- Embedded frontend assets from `web/`
-- `GET /`
+已实现：
+
+- Go HTTP 服务入口
+- 嵌入式前端资源
 - `POST /api/analyze`
 - `POST /api/convert`
-- `ItemsAdder -> CraftEngine` conversion path, including resource-pack migration, furniture handling, armor handling, and complex item templates
-- `Nexo -> CraftEngine` conversion path with resource-pack migration
 - `GET /api/download/:filename`
 - `POST /api/heartbeat`
 - `POST /api/shutdown`
-- YAML loading with UTF-8, GBK, Latin-1, and tab-indentation fallback
-- Package structure analysis ported from `src/analyzer.py`
-
-Not ported yet:
-- Cross-source parity testing against the Python implementation on a wider sample of real packs
-- Additional converter targets beyond the current CraftEngine output
+- `ItemsAdder -> CraftEngine`
+- `Nexo -> CraftEngine`
+- YAML 兼容加载
+- 共享文件 I/O 层，用于流式压缩和复制
 
 ## Run
 
@@ -31,9 +26,9 @@ Not ported yet:
 go run ./cmd/mcc
 ```
 
-The server listens on `http://127.0.0.1:5000`.
+## Build
 
-## Notes
-
-- The branch now compiles locally with `go build ./...`.
-- The existing Python implementation is intentionally kept in place as a reference during migration validation.
+```bash
+go build ./...
+go build -o dist/mcc.exe ./cmd/mcc
+```

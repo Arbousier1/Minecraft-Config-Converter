@@ -1,21 +1,36 @@
-<h1 align="center">
-  <div style="text-align:center">
-    <img src="icon.png" alt="logo" style="width:100px; height:auto;">
-  </div>
-</h1>
+# MCC
 
-##  MCC Tool
-MCC（Minecraft Config Converter） 是一个用于分析和转换 Minecraft 服务器插件配置的工具。
-## 软件适配进度
-| 插件       | ItemsAdder | CraftEngine | Nexo |
-|------------|------------|-------------|------|
-| ItemsAdder |      -     | ✔️   | 适配中|
-| CraftEngine| 适配中| -| 适配中|
-| Nexo       | 适配中 |适配中 | -|
+Minecraft Config Converter 的 Go 版本。
 
-## 代办事项
-1. 优化ce家具的碰撞箱与实体逻辑 2026/02/06
-2. Nexo适配工作 2026/02/06
+## Current Scope
 
-## 已完成事项
-资源路径优化，防止重复添加item/子目录 2026/02/08
+- `ItemsAdder -> CraftEngine`
+- `Nexo -> CraftEngine`
+- 包结构分析
+- 嵌入式 Web UI
+- 结果下载、心跳、关闭接口
+
+## Run
+
+```bash
+go run ./cmd/mcc
+```
+
+默认监听 `http://127.0.0.1:5000`。
+
+## Build
+
+```bash
+go build ./...
+go build -o dist/mcc.exe ./cmd/mcc
+```
+
+## Structure
+
+- `cmd/mcc`: 程序入口
+- `internal/server`: HTTP 服务
+- `internal/analyzer`: 包分析
+- `internal/converter/iace`: ItemsAdder 转换
+- `internal/converter/nexoce`: Nexo 转换
+- `internal/fileutil`: 共享文件 I/O
+- `web`: 前端静态资源

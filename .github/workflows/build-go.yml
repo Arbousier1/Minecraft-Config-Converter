@@ -1,4 +1,4 @@
-name: Build Go Rewrite
+name: Build Go
 
 on:
   push:
@@ -24,17 +24,17 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
-    - name: Prepare module metadata
-      run: go mod tidy
-
     - name: Build all packages
-      run: go build -mod=mod ./...
+      run: go build ./...
+
+    - name: Run tests
+      run: go test ./...
 
     - name: Create dist directory
       run: New-Item -ItemType Directory -Force dist | Out-Null
 
     - name: Build application binary
-      run: go build -mod=mod -o dist/mcc.exe ./cmd/mcc
+      run: go build -trimpath -ldflags "-s -w" -o dist/mcc.exe ./cmd/mcc
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4

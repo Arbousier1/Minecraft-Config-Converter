@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/fileutil"
 )
 
 type migrator struct {
@@ -98,7 +100,7 @@ func (m *migrator) migrateTextures() error {
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return err
 		}
-		return copyFile(path, filepath.Join(destDir, info.Name()))
+		return fileutil.CopyFile(path, filepath.Join(destDir, info.Name()))
 	})
 }
 
@@ -348,14 +350,6 @@ func (m *migrator) buildArmorTextureDir(relPath, name string) string {
 		return filepath.ToSlash(filepath.Join("entity", "equipment", target))
 	}
 	return filepath.ToSlash(filepath.Join(append([]string{"entity", "equipment", target}, parts...)...))
-}
-
-func copyFile(src, dst string) error {
-	raw, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, raw, 0o644)
 }
 
 func splitPath(path string) []string {

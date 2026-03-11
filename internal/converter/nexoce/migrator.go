@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/fileutil"
 )
 
 type migrator struct {
@@ -141,7 +143,7 @@ func (m *migrator) migrateTextures() error {
 				if err := os.MkdirAll(filepath.Dir(destFile), 0o755); err != nil {
 					return err
 				}
-				return copyFile(path, destFile)
+				return fileutil.CopyFile(path, destFile)
 			})
 			if err != nil {
 				return err
@@ -492,14 +494,6 @@ func uniqueStrings(values []string) []string {
 		result = append(result, value)
 	}
 	return result
-}
-
-func copyFile(src, dst string) error {
-	raw, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, raw, 0o644)
 }
 
 func splitFiltered(value string, excluded map[string]struct{}) []string {

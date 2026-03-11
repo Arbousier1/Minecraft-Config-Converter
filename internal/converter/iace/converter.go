@@ -1,7 +1,6 @@
 package iace
 
 import (
-	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -12,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/fileutil"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/yamlx"
 	"gopkg.in/yaml.v3"
 )
@@ -114,7 +114,7 @@ func Run(opts Options) (*Result, error) {
 
 	outputName := buildArchiveName(opts.OriginalFilename, opts.TargetFormat)
 	outputPath := filepath.Join(opts.OutputDir, outputName)
-	if err := zipDirectory(filepath.Join(opts.SessionOutputDir, "CraftEngine"), outputPath); err != nil {
+	if err := fileutil.ZipDirectory(filepath.Join(opts.SessionOutputDir, "CraftEngine"), outputPath); err != nil {
 		return nil, err
 	}
 
@@ -199,7 +199,7 @@ func (c *Converter) Save(outputDir string) error {
 		if len(otherItems) > 0 {
 			payload["items"] = otherItems
 		}
-		if err := writeYAML(filepath.Join(outputDir, "items.yml"), payload); err != nil {
+		if err := fileutil.WriteYAML(filepath.Join(outputDir, "items.yml"), payload); err != nil {
 			return err
 		}
 	}
@@ -212,13 +212,13 @@ func (c *Converter) Save(outputDir string) error {
 		if len(c.config.Equipments) > 0 {
 			payload["equipments"] = c.config.Equipments
 		}
-		if err := writeYAML(filepath.Join(outputDir, "armor.yml"), payload); err != nil {
+		if err := fileutil.WriteYAML(filepath.Join(outputDir, "armor.yml"), payload); err != nil {
 			return err
 		}
 	}
 
 	if len(c.config.Categories) > 0 {
-		if err := writeYAML(filepath.Join(outputDir, "categories.yml"), map[string]any{
+		if err := fileutil.WriteYAML(filepath.Join(outputDir, "categories.yml"), map[string]any{
 			"categories": c.config.Categories,
 		}); err != nil {
 			return err
@@ -226,7 +226,7 @@ func (c *Converter) Save(outputDir string) error {
 	}
 
 	if len(c.config.Recipes) > 0 {
-		if err := writeYAML(filepath.Join(outputDir, "recipe.yml"), map[string]any{
+		if err := fileutil.WriteYAML(filepath.Join(outputDir, "recipe.yml"), map[string]any{
 			"recipes": c.config.Recipes,
 		}); err != nil {
 			return err
@@ -477,7 +477,6 @@ func (c *Converter) convertCategory(key string, data map[string]any) {
 
 	entry := map[string]any{
 		"name":     "<!i>" + name,
-		"lore":     iaCategoryLore(),
 		"priority": 1,
 		"icon":     icon,
 		"list":     ceItems,
@@ -653,64 +652,6 @@ func (c *Converter) normalizeEquipmentTexturePath(raw string, leggings bool) str
 	return fmt.Sprintf("%s:entity/equipment/%s/%s", c.namespace, target, strings.Join(parts, "/"))
 }
 
-func writeYAML(path string, payload any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-
-	raw, err := yaml.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, raw, 0o644)
-}
-
-func zipDirectory(sourceDir, destination string) error {
-	dstFile, err := os.Create(destination)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	zipWriter := zip.NewWriter(dstFile)
-	defer zipWriter.Close()
-
-	return filepath.Walk(sourceDir, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		rel, err := filepath.Rel(sourceDir, path)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-
-		header, err := zip.FileInfoHeader(info)
-		if err != nil {
-			return err
-		}
-		header.Name = rel
-		header.Method = zip.Deflate
-
-		writer, err := zipWriter.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		_, err = writer.Write(content)
-		return err
-	})
-}
-
 func buildArchiveName(original, target string) string {
 	base := strings.TrimSuffix(original, filepath.Ext(original))
 	if base == "" {
@@ -727,14 +668,6 @@ func formatDisplayName(name, namespace string) string {
 		defaultColor = "<#FFCF20>"
 	}
 	return "<!i>" + defaultColor + strings.ReplaceAll(name, "&", "§")
-}
-
-func iaCategoryLore() []string {
-	return []string{
-		"<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 生成",
-		"<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
-		"<!i><dark_gray>感谢您的支持</dark_gray>",
-	}
 }
 
 func normalizeLore(raw any) []string {
