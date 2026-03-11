@@ -12,7 +12,9 @@ Implemented:
 - Embedded frontend assets from `web/`
 - `GET /`
 - `POST /api/analyze`
-- First-pass `ItemsAdder -> CraftEngine` conversion path
+- `POST /api/convert`
+- `ItemsAdder -> CraftEngine` conversion path, including resource-pack migration, furniture handling, armor handling, and complex item templates
+- `Nexo -> CraftEngine` conversion path with resource-pack migration
 - `GET /api/download/:filename`
 - `POST /api/heartbeat`
 - `POST /api/shutdown`
@@ -20,9 +22,8 @@ Implemented:
 - Package structure analysis ported from `src/analyzer.py`
 
 Not ported yet:
-- Nexo to CraftEngine conversion logic
-- Resource-pack migration for ItemsAdder assets
-- Complex ItemsAdder behaviors such as furniture placement and generated model variants
+- Cross-source parity testing against the Python implementation on a wider sample of real packs
+- Additional converter targets beyond the current CraftEngine output
 
 ## Run
 
@@ -34,5 +35,5 @@ The server listens on `http://127.0.0.1:5000`.
 
 ## Notes
 
-- The current environment used for this rewrite does not have a working Go toolchain installed, so this branch was not compiled locally.
-- The existing Python implementation is intentionally kept in place as a reference for the remaining converter port.
+- The branch now compiles locally with `go build ./...`.
+- The existing Python implementation is intentionally kept in place as a reference during migration validation.

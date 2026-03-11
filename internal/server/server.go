@@ -19,6 +19,7 @@ import (
 	mccassets "github.com/Arbousier1/Minecraft-Config-Converter"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/analyzer"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/converter/iace"
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/converter/nexoce"
 )
 
 const maxUploadSize = 500 << 20
@@ -251,20 +252,41 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if sourceFormat == "Nexo" {
-		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Nexo conversion is not ported yet in the Go rewrite"})
-		return
-	}
+	var (
+		downloadURL string
+		err         error
+	)
 
-	result, err := iace.Run(iace.Options{
-		ExtractDir:       extractDir,
-		SessionUploadDir: sessionUploadDir,
-		SessionOutputDir: sessionOutputDir,
-		OutputDir:        s.outputDir,
-		OriginalFilename: originalFilename,
-		UserNamespace:    namespace,
-		TargetFormat:     targetFormat,
-	})
+	switch sourceFormat {
+	case "Nexo":
+		result, runErr := nexoce.Run(nexoce.Options{
+			ExtractDir:       extractDir,
+			SessionUploadDir: sessionUploadDir,
+			SessionOutputDir: sessionOutputDir,
+			OutputDir:        s.outputDir,
+			OriginalFilename: originalFilename,
+			UserNamespace:    namespace,
+			TargetFormat:     targetFormat,
+		})
+		if result != nil {
+			downloadURL = result.DownloadURL
+		}
+		err = runErr
+	default:
+		result, runErr := iace.Run(iace.Options{
+			ExtractDir:       extractDir,
+			SessionUploadDir: sessionUploadDir,
+			SessionOutputDir: sessionOutputDir,
+			OutputDir:        s.outputDir,
+			OriginalFilename: originalFilename,
+			UserNamespace:    namespace,
+			TargetFormat:     targetFormat,
+		})
+		if result != nil {
+			downloadURL = result.DownloadURL
+		}
+		err = runErr
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
@@ -272,7 +294,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":       "success",
-		"download_url": result.DownloadURL,
+		"download_url": downloadURL,
 	})
 }
 

@@ -3,6 +3,7 @@ package iace
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,13 +18,13 @@ import (
 var namespacePattern = regexp.MustCompile(`^[0-9a-z_.-]+$`)
 
 type Options struct {
-	ExtractDir        string
-	SessionUploadDir  string
-	SessionOutputDir  string
-	OutputDir         string
-	OriginalFilename  string
-	UserNamespace     string
-	TargetFormat      string
+	ExtractDir       string
+	SessionUploadDir string
+	SessionOutputDir string
+	OutputDir        string
+	OriginalFilename string
+	UserNamespace    string
+	TargetFormat     string
 }
 
 type Result struct {
@@ -32,8 +33,13 @@ type Result struct {
 }
 
 type Converter struct {
-	namespace string
-	config    ceConfig
+	namespace          string
+	config             ceConfig
+	resourcepackPath   string
+	outputResourceRoot string
+	generatedModels    map[string]map[string]any
+	armorHumanoidKeys  map[string]struct{}
+	armorLeggingsKeys  map[string]struct{}
 }
 
 type ceConfig struct {
@@ -54,14 +60,19 @@ type mergedData struct {
 	Info            map[string]any
 }
 
+type scanResult struct {
+	data             *mergedData
+	resourcepackPath string
+}
+
 func Run(opts Options) (*Result, error) {
-	data, err := loadMergedData(opts.ExtractDir)
+	scan, err := loadMergedData(opts.ExtractDir)
 	if err != nil {
 		return nil, err
 	}
 
 	namespace := "converted"
-	if rawNS, ok := data.Info["namespace"].(string); ok && rawNS != "" {
+	if rawNS, ok := scan.data.Info["namespace"].(string); ok && rawNS != "" {
 		namespace = rawNS
 	}
 	if opts.UserNamespace != "" {
@@ -72,7 +83,11 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	converter := New(namespace)
-	converter.Convert(data)
+	converter.SetResourcePaths(
+		scan.resourcepackPath,
+		filepath.Join(opts.SessionOutputDir, "CraftEngine", "resources", namespace, "resourcepack"),
+	)
+	converter.Convert(scan.data)
 
 	configDir := filepath.Join(opts.SessionOutputDir, "CraftEngine", "resources", namespace, "configuration", "items", namespace)
 	if err := converter.Save(configDir); err != nil {
@@ -101,7 +116,15 @@ func New(namespace string) *Converter {
 			Categories: map[string]map[string]any{},
 			Recipes:    map[string]map[string]any{},
 		},
+		generatedModels:   map[string]map[string]any{},
+		armorHumanoidKeys: map[string]struct{}{},
+		armorLeggingsKeys: map[string]struct{}{},
 	}
+}
+
+func (c *Converter) SetResourcePaths(resourcepackPath, outputResourceRoot string) {
+	c.resourcepackPath = resourcepackPath
+	c.outputResourceRoot = outputResourceRoot
 }
 
 func (c *Converter) Convert(data *mergedData) {
@@ -192,10 +215,34 @@ func (c *Converter) Save(outputDir string) error {
 		}
 	}
 
+	if c.resourcepackPath != "" && c.outputResourceRoot != "" {
+		migrator := newMigrator(c.resourcepackPath, c.outputResourceRoot, c.namespace, c.armorHumanoidKeys, c.armorLeggingsKeys)
+		if err := migrator.migrate(); err != nil {
+			return err
+		}
+	}
+
+	if c.outputResourceRoot != "" && len(c.generatedModels) > 0 {
+		modelsRoot := filepath.Join(c.outputResourceRoot, "assets", c.namespace, "models")
+		for relPath, content := range c.generatedModels {
+			fullPath := filepath.Join(modelsRoot, filepath.FromSlash(relPath))
+			if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+				return err
+			}
+			raw, err := json.MarshalIndent(content, "", "    ")
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(fullPath, raw, 0o644); err != nil {
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
-func loadMergedData(extractDir string) (*mergedData, error) {
+func loadMergedData(extractDir string) (*scanResult, error) {
 	scanRoot := extractDir
 	_ = filepath.Walk(extractDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || !info.IsDir() {
@@ -217,6 +264,7 @@ func loadMergedData(extractDir string) (*mergedData, error) {
 		Recipes:         map[string]map[string]map[string]any{},
 		Info:            map[string]any{},
 	}
+	resourcepackPath := ""
 
 	foundItems := false
 
@@ -224,7 +272,36 @@ func loadMergedData(extractDir string) (*mergedData, error) {
 		if walkErr != nil {
 			return walkErr
 		}
+
 		if info.IsDir() {
+			if resourcepackPath == "" {
+				if strings.EqualFold(info.Name(), "resourcepack") {
+					resourcepackPath = path
+				} else {
+					entries, err := os.ReadDir(path)
+					if err == nil {
+						hasAssets := false
+						hasModels := false
+						hasTextures := false
+						for _, entry := range entries {
+							if !entry.IsDir() {
+								continue
+							}
+							switch strings.ToLower(entry.Name()) {
+							case "assets":
+								hasAssets = true
+							case "models":
+								hasModels = true
+							case "textures":
+								hasTextures = true
+							}
+						}
+						if hasAssets || (hasModels && hasTextures) {
+							resourcepackPath = path
+						}
+					}
+				}
+			}
 			return nil
 		}
 
@@ -282,7 +359,14 @@ func loadMergedData(extractDir string) (*mergedData, error) {
 		return nil, fmt.Errorf("unable to find ItemsAdder item definitions")
 	}
 
-	return merged, nil
+	if resourcepackPath == "" {
+		resourcepackPath = extractDir
+	}
+
+	return &scanResult{
+		data:             merged,
+		resourcepackPath: resourcepackPath,
+	}, nil
 }
 
 func (c *Converter) convertItem(key string, data map[string]any) {
@@ -314,29 +398,17 @@ func (c *Converter) convertItem(key string, data map[string]any) {
 	}
 
 	behaviours, _ := asStringMap(data["behaviours"])
-	if boolValue(behaviours["hat"]) {
+	if boolValue(behaviours["hat"]) || (data["equipment"] != nil && !hasStringKey(data["equipment"], "id")) {
 		dataSection["equippable"] = map[string]any{"slot": "head"}
-	}
-
-	if modelPath, ok := resource["model_path"].(string); ok && modelPath != "" {
-		ceItem["model"] = map[string]any{
-			"type": "minecraft:model",
-			"path": c.modelRef(modelPath),
-		}
-	} else if textures := normalizeTextures(resource); len(textures) > 0 {
-		namespaced := make([]string, 0, len(textures))
-		for _, texture := range textures {
-			namespaced = append(namespaced, c.namespace+":"+texture)
-		}
-		ceItem["textures"] = namespaced
-	}
-
-	if equipment, ok := asStringMap(data["equipment"]); ok && len(equipment) > 0 {
-		id := stringValue(equipment["id"])
-		if id == "" {
-			id = key
-		}
-		dataSection["equipment"] = c.namespaced(id)
+		c.handleGenericModel(ceItem, resource)
+	} else if c.isArmor(material, data) {
+		c.handleArmor(ceItem, data)
+	} else if furniture, ok := asStringMap(behaviours["furniture"]); ok && len(furniture) > 0 {
+		c.handleFurniture(ceItem, data, ceID, furniture)
+	} else if isComplexItem(material) {
+		c.handleComplexItem(ceItem, key, data, material)
+	} else {
+		c.handleGenericModel(ceItem, resource)
 	}
 
 	c.config.Items[ceID] = ceItem
@@ -347,9 +419,11 @@ func (c *Converter) convertEquipment(key string, data map[string]any) {
 		"type": "component",
 	}
 	if layer1 := stringValue(data["layer_1"]); layer1 != "" {
+		c.registerArmorTexture(layer1, false)
 		entry["humanoid"] = c.normalizeEquipmentTexturePath(layer1, false)
 	}
 	if layer2 := stringValue(data["layer_2"]); layer2 != "" {
+		c.registerArmorTexture(layer2, true)
 		entry["humanoid-leggings"] = c.normalizeEquipmentTexturePath(layer2, true)
 	}
 	c.config.Equipments[c.namespaced(key)] = entry
@@ -540,14 +614,14 @@ func (c *Converter) normalizeEquipmentTexturePath(raw string, leggings bool) str
 	value = strings.TrimPrefix(value, "textures/")
 
 	parts := splitFiltered(value, map[string]struct{}{
-		"textures":           {},
-		"entity":             {},
-		"equipment":          {},
-		"humanoid":           {},
-		"humanoid_legging":   {},
-		"humanoid_leggings":  {},
-		"armor":              {},
-		"armour":             {},
+		"textures":          {},
+		"entity":            {},
+		"equipment":         {},
+		"humanoid":          {},
+		"humanoid_legging":  {},
+		"humanoid_leggings": {},
+		"armor":             {},
+		"armour":            {},
 	})
 
 	target := "humanoid"
@@ -694,21 +768,21 @@ func mapRecipeType(groupKey string, recipe map[string]any) string {
 	}
 
 	mapping := map[string]string{
-		"crafting_table":    "shaped",
-		"shapeless":         "shapeless",
-		"shapeless_crafting":"shapeless",
-		"furnace":           "smelting",
-		"smelting":          "smelting",
-		"blast_furnace":     "blasting",
-		"blasting":          "blasting",
-		"smoker":            "smoking",
-		"smoking":           "smoking",
-		"campfire":          "campfire_cooking",
-		"campfire_cooking":  "campfire_cooking",
-		"stonecutting":      "stonecutting",
-		"smithing":          "smithing_transform",
-		"smithing_transform":"smithing_transform",
-		"brewing":           "brewing",
+		"crafting_table":     "shaped",
+		"shapeless":          "shapeless",
+		"shapeless_crafting": "shapeless",
+		"furnace":            "smelting",
+		"smelting":           "smelting",
+		"blast_furnace":      "blasting",
+		"blasting":           "blasting",
+		"smoker":             "smoking",
+		"smoking":            "smoking",
+		"campfire":           "campfire_cooking",
+		"campfire_cooking":   "campfire_cooking",
+		"stonecutting":       "stonecutting",
+		"smithing":           "smithing_transform",
+		"smithing_transform": "smithing_transform",
+		"brewing":            "brewing",
 	}
 	if value, ok := mapping[group]; ok {
 		return value
