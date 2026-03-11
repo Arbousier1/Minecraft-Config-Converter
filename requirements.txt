@@ -1,3 +1,4 @@
 Flask==3.0.3
 PyYAML==6.0.1
 pyinstaller==6.18.0
+Pillow==11.3.0
