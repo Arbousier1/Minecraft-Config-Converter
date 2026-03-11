@@ -4,9 +4,11 @@ import json
 from .base import BaseMigrator
 
 class IAMigrator(BaseMigrator):
-    def __init__(self, ia_resourcepack_path, ce_resourcepack_path, namespace):
+    def __init__(self, ia_resourcepack_path, ce_resourcepack_path, namespace, armor_humanoid_keys=None, armor_leggings_keys=None):
         super().__init__(ia_resourcepack_path, ce_resourcepack_path)
         self.namespace = namespace
+        self.armor_humanoid_keys = set(armor_humanoid_keys or [])
+        self.armor_leggings_keys = set(armor_leggings_keys or [])
 
     def migrate(self):
         """执行完整的迁移过程。"""
@@ -22,9 +24,13 @@ class IAMigrator(BaseMigrator):
         self._migrate_sounds()
         
         # 4. 生成缺失的物品模型 (针对 generate: true 的物品)
-        self.generate_missing_item_models()
+        # self.generate_missing_item_models()
         
         print("迁移完成。")
+    
+    def set_armor_texture_keys(self, humanoid_keys, leggings_keys):
+        self.armor_humanoid_keys = set(humanoid_keys or [])
+        self.armor_leggings_keys = set(leggings_keys or [])
 
     def _get_resource_dir(self, resource_type):
         """
@@ -51,6 +57,149 @@ class IAMigrator(BaseMigrator):
             
         return None
 
+    def _is_leggings_texture(self, name, rel_path):
+        name_l = name.lower()
+        rel_l = rel_path.replace("\\", "/").lower()
+        if "layer_2" in name_l or "layer2" in name_l:
+            return True
+        if "legging" in name_l or "leggings" in name_l:
+            return True
+        if "legging" in rel_l or "leggings" in rel_l:
+            return True
+        if "layer_2" in rel_l or "layer2" in rel_l:
+            return True
+        return False
+
+    def _normalize_texture_key_from_path(self, path_part):
+        path = path_part.replace("\\", "/").lstrip("/")
+        if path.startswith("./"):
+            path = path[2:]
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        if path.endswith(".png"):
+            path = path[:-4]
+        return path
+
+    def _armor_key_to_dest_rel(self, key, is_leggings):
+        # print(f"输入路径: {key}")
+        path = key.replace("\\", "/").lstrip("/")
+        # print(f"原始路径: {path}")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        if path.startswith("entity/equipment/humanoid/") or path.startswith("entity/equipment/humanoid_legging/") or path.startswith("entity/equipment/humanoid_leggings/"):
+            return path
+        if "/" not in path and "\\" not in path:
+            target_folder = "humanoid_legging" if is_leggings else "humanoid"
+            return f"entity/equipment/{target_folder}"
+        parts = [p for p in path.split("/") if p]
+        excluded = {"textures", "entity", "equipment", "humanoid", "humanoid_legging", "humanoid_leggings", "armor", "armour"}
+        subparts = [p for p in parts if p.lower() not in excluded]
+        has_duplicate = len(subparts) >= 2 and subparts[-1].lower() == subparts[-2].lower()
+        if has_duplicate:
+            subparts = subparts[:-2]
+        subpath = "/".join(subparts)
+        target_folder = "humanoid_legging" if is_leggings else "humanoid"
+        # if subpath:
+        #     return f"entity/equipment/{target_folder}/{subpath}"
+        return f"entity/equipment/{target_folder}"
+
+    def _is_armor_icon_texture(self, name, rel_path):
+        rel_l = rel_path.replace("\\", "/").lower()
+        if rel_l.startswith("item/") or rel_l == "item":
+            return False
+        key = self._normalize_texture_key_from_path(os.path.join(rel_path, name))
+        if key in self.armor_humanoid_keys or key in self.armor_leggings_keys:
+            return False
+        base = os.path.splitext(name.lower())[0]
+        if base in {"helmet", "chestplate", "leggings", "boots"}:
+            return True
+        if base.endswith(("_helmet", "_chestplate", "_leggings", "_boots")):
+            return True
+        if "icon" in base:
+            return True
+        if "icon" in rel_l or "icons" in rel_l:
+            return True
+        return False
+
+    def _is_armor_texture(self, name, rel_path):
+        rel_l = rel_path.replace("\\", "/").lower()
+        if rel_l.startswith("item/") or rel_l == "item":
+            return False
+        if self._is_armor_icon_texture(name, rel_path):
+            return False
+        name_l = name.lower()
+        if "layer_1" in name_l or "layer_2" in name_l:
+            return True
+        if "armor" in name_l or "armour" in name_l:
+            return True
+        if "armor" in rel_l or "armour" in rel_l:
+            return True
+        if "equipment" in rel_l or "humanoid" in rel_l:
+            return True
+        return False
+
+    def _build_item_armor_dir(self, rel_path):
+        rel_l = rel_path.replace("\\", "/")
+        parts = [p for p in rel_l.split("/") if p and p != "."]
+        excluded = {"textures", "armor", "armour"}
+        prefix = [p for p in parts if p.lower() not in excluded]
+        if prefix:
+            return os.path.join("item", "armor", *prefix)
+        return os.path.join("item", "armor")
+
+    def _build_armor_texture_dir(self, rel_path, name):
+        rel_l = rel_path.replace("\\", "/")
+        parts = [p for p in rel_l.split("/") if p and p != "."]
+        excluded = {"textures", "entity", "equipment", "humanoid", "humanoid_legging", "humanoid_leggings", "armor", "armour"}
+        prefix = [p for p in parts if p.lower() not in excluded]
+        target_folder = "humanoid_legging" if self._is_leggings_texture(name, rel_path) else "humanoid"
+        basename = os.path.splitext(name)[0]
+        if prefix and prefix[-1].lower() == basename.lower():
+            prefix = prefix[:-1]
+        if prefix:
+            return os.path.join("entity", "equipment", target_folder, *prefix)
+        return os.path.join("entity", "equipment", target_folder)
+
+    def _normalize_texture_path(self, path_part):
+        path = path_part.replace("\\", "/").lstrip("/")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        key = self._normalize_texture_key_from_path(path)
+        if key in self.armor_humanoid_keys:
+            return self._armor_key_to_dest_rel(key, is_leggings=False)
+        if key in self.armor_leggings_keys:
+            return self._armor_key_to_dest_rel(key, is_leggings=True)
+        if self._is_armor_icon_texture(path.split("/")[-1], path):
+            parts = [p for p in path.split("/") if p]
+            excluded = {"textures", "armor", "armour"}
+            basename = parts[-1] if parts else ""
+            prefix = [p for p in parts[:-1] if p.lower() not in excluded]
+            if basename:
+                subpath = "/".join(prefix + [basename])
+            else:
+                subpath = "/".join(prefix)
+            if subpath:
+                return f"item/armor/{subpath}"
+            return "item/armor"
+        if self._is_armor_texture(path.split("/")[-1], path):
+            parts = [p for p in path.split("/") if p]
+            excluded = {"textures", "entity", "equipment", "humanoid", "humanoid_legging", "humanoid_leggings", "armor", "armour"}
+            basename = parts[-1] if parts else ""
+            prefix = [p for p in parts[:-1] if p.lower() not in excluded]
+            if prefix and basename and prefix[-1].lower() == basename.lower():
+                prefix = prefix[:-1]
+            target_folder = "humanoid_legging" if self._is_leggings_texture(basename, path) else "humanoid"
+            if basename:
+                subpath = "/".join(prefix + [basename])
+            else:
+                subpath = "/".join(prefix)
+            if subpath:
+                return f"entity/equipment/{target_folder}/{subpath}"
+            return f"entity/equipment/{target_folder}"
+        if path.startswith("item/"):
+            return path
+        return f"item/{path}"
+
     def _migrate_textures(self):
         """
         ItemsAdder: assets/<namespace>/textures/<path>
@@ -73,18 +222,16 @@ class IAMigrator(BaseMigrator):
                     
                 rel_path = os.path.relpath(root, src_dir)
                 src_file = os.path.join(root, file)
-                
-                # 确定目标位置
-                # IA 护甲图层 (皮肤) 通常在文件名中包含 "layer_"。
-                # 我们希望保持它们的原始结构 (或者如果我们要更严格，则移动到 entity/)。
-                # 但护甲图标 (物品) 应该去 textures/item/。
-                
-                if "layer_" in file:
-                     dest_rel = rel_path
+                key = self._normalize_texture_key_from_path(os.path.join(rel_path, file))
+                if key in self.armor_humanoid_keys:
+                    dest_rel = self._armor_key_to_dest_rel(key, is_leggings=False)
+                elif key in self.armor_leggings_keys:
+                    dest_rel = self._armor_key_to_dest_rel(key, is_leggings=True)
+                elif self._is_armor_icon_texture(file, rel_path):
+                    dest_rel = self._build_item_armor_dir(rel_path)
+                elif self._is_armor_texture(file, rel_path):
+                    dest_rel = self._build_armor_texture_dir(rel_path, file)
                 else:
-                    # 如果原路径已经是在 item/ 下，不要重复添加
-                    # 使用 os.path.split 或检查开头
-                    # 注意 windows 下 rel_path 可能是 "item\\sword.png"
                     parts = rel_path.split(os.sep)
                     if parts[0] == "item":
                         dest_rel = rel_path
@@ -214,11 +361,7 @@ class IAMigrator(BaseMigrator):
                              
                         # 如果是旧命名空间（或者是当前处理的命名空间），我们需要更新它
                         # 应用路径调整逻辑 (移动到 item/)
-                        if "layer" not in path_part and "armor" not in path_part and not path_part.startswith("item/"):
-                             new_path = f"item/{path_part}"
-                        else:
-                             new_path = path_part
-                             
+                        new_path = self._normalize_texture_path(path_part)
                         new_val = f"{self.namespace}:{new_path}"
                         new_textures[key] = new_val
                     else:
@@ -227,10 +370,7 @@ class IAMigrator(BaseMigrator):
                              new_textures[key] = val
                         else:
                              # 可能是相对路径，加上命名空间
-                             if "layer" not in val and "armor" not in val and not val.startswith("item/"):
-                                  new_path = f"item/{val}"
-                             else:
-                                  new_path = val
+                             new_path = self._normalize_texture_path(val)
                              new_textures[key] = f"{self.namespace}:{new_path}"
 
                 data["textures"] = new_textures

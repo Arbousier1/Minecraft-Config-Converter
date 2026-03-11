@@ -1,7 +1,8 @@
 import os
 import json
+import re
 from turtle import position
-from .base import BaseConverter
+from .base import BaseConverter, RecipeDumper
 from src.migrators.ia_to_ce import IAMigrator
 
 class IAConverter(BaseConverter):
@@ -11,11 +12,14 @@ class IAConverter(BaseConverter):
             "items": {},
             "equipments": {},
             "templates": {},
-            "categories": {}
+            "categories": {},
+            "recipes": {}
         }
         self.ia_resourcepack_root = None
         self.ce_resourcepack_root = None
         self.generated_models = {} # 存储需要生成的模型
+        self.armor_humanoid_keys = set()
+        self.armor_leggings_keys = set()
 
     def set_resource_paths(self, ia_root, ce_root):
         self.ia_resourcepack_root = ia_root
@@ -74,12 +78,18 @@ class IAConverter(BaseConverter):
             cat_data = {"categories": self.ce_config["categories"]}
             self._write_yaml_with_footer(cat_data, os.path.join(output_dir, "categories.yml"))
 
+        if self.ce_config["recipes"]:
+            recipe_data = {"recipes": self.ce_config["recipes"]}
+            self._write_yaml_with_footer(recipe_data, os.path.join(output_dir, "recipe.yml"), dumper=RecipeDumper)
+
         # 如果设置了路径，触发资源迁移
         if self.ia_resourcepack_root and self.ce_resourcepack_root:
             migrator = IAMigrator(
                 self.ia_resourcepack_root, 
                 self.ce_resourcepack_root, 
-                self.namespace
+                self.namespace,
+                self.armor_humanoid_keys,
+                self.armor_leggings_keys
             )
             migrator.migrate()
             
@@ -113,6 +123,9 @@ class IAConverter(BaseConverter):
         # 转换分类
         if "categories" in ia_data:
             self._convert_categories(ia_data["categories"])
+
+        if "recipes" in ia_data:
+            self._convert_recipes(ia_data["recipes"])
         
         # 自动生成分类 (如果不存在)
         if not self.ce_config["categories"] and self.ce_config["items"]:
@@ -132,12 +145,7 @@ class IAConverter(BaseConverter):
         # 尝试寻找合适的图标 (第一个物品)
         icon = "minecraft:chest"
         if items_list:
-            first_item = self.ce_config["items"][items_list[0]]
-            # 如果物品有自定义模型，尝试使用该物品作为图标
-            if "model" in first_item:
-                 icon = items_list[0]
-            else:
-                 icon = first_item.get("material", "minecraft:chest")
+            icon = items_list[0]
 
         ce_category = {
             "name": f"<!i>{self.namespace.capitalize()}",
@@ -152,6 +160,51 @@ class IAConverter(BaseConverter):
     def _convert_items(self, items_data):
         for item_key, item_data in items_data.items():
             self._convert_item(item_key, item_data)
+    
+    def _normalize_equipment_key(self, raw_path):
+        if not raw_path:
+            return None
+        path = str(raw_path)
+        if ":" in path:
+            path = path.split(":", 1)[1]
+        if path.endswith(".png"):
+            path = path[:-4]
+        path = path.replace("\\", "/").lstrip("/")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        return path
+    
+    def _register_equipment_texture(self, raw_path, is_leggings=False):
+        key = self._normalize_equipment_key(raw_path)
+        if not key:
+            return
+        if is_leggings:
+            self.armor_leggings_keys.add(key)
+        else:
+            self.armor_humanoid_keys.add(key)
+    
+    def _normalize_equipment_texture_path(self, raw_path, is_leggings=False):
+        if not raw_path:
+            return f"{self.namespace}:entity/equipment/humanoid/unknown"
+        path = str(raw_path)
+        if ":" in path:
+            path = path.split(":", 1)[1]
+        if path.endswith(".png"):
+            path = path[:-4]
+        path = path.replace("\\", "/").lstrip("/")
+        if path.startswith("textures/"):
+            path = path[len("textures/"):]
+        parts = [p for p in path.split("/") if p]
+        excluded = {"textures", "entity", "equipment", "humanoid", "humanoid_legging", "humanoid_leggings", "armor", "armour"}
+        if not parts:
+            subpath = "unknown"
+        else:
+            basename = parts[-1]
+            prefix = [p for p in parts[:-1] if p.lower() not in excluded]
+            subpath = "/".join(prefix + [basename]) if basename else "/".join(prefix)
+        target_folder = "humanoid_legging" if is_leggings else "humanoid"
+        final_path = f"entity/equipment/{target_folder}/{subpath}" if subpath else f"entity/equipment/{target_folder}"
+        return f"{self.namespace}:{final_path}"
 
     def _convert_categories(self, categories_data):
         """
@@ -176,16 +229,33 @@ class IAConverter(BaseConverter):
                     ce_items.append(f"{self.namespace}:{item}")
 
             # 映射图标
-            icon = cat_data.get("icon", "minecraft:stone")
-            if ":" in icon:
-                 parts = icon.split(":")
-                 if len(parts) == 2 and parts[0] != "minecraft":
-                      icon = f"{self.namespace}:{parts[1]}"
-            else:
-                 icon = f"{self.namespace}:{icon}"
+            # 逻辑变更：优先使用列表中的第一个物品作为图标
+            # 检查第一个物品是否存在于 ce_config['items'] 中
+            icon = None
+            if ce_items:
+                potential_icon = ce_items[0]
+                # 移除命名空间进行检查 (如果存在)
+                check_id = potential_icon
+                if check_id in self.ce_config["items"]:
+                    icon = potential_icon
+            
+            if not icon:
+                # 只有当列表为空或第一个物品无效时，才尝试使用配置中的 icon 或默认值
+                icon = cat_data.get("icon", "minecraft:stone")
+                if ":" in icon:
+                     parts = icon.split(":")
+                     if len(parts) == 2 and parts[0] != "minecraft":
+                          icon = f"{self.namespace}:{parts[1]}"
+                elif icon != "minecraft:stone":
+                     icon = f"{self.namespace}:{icon}"
+
+            # Remove Minecraft color codes (e.g. §6) from category name
+            cat_name = cat_data.get('name', cat_key)
+            if isinstance(cat_name, str):
+                cat_name = re.sub(r'§[0-9a-fk-or]', '', cat_name)
 
             ce_category = {
-                "name": f"<!i>{cat_data.get('name', cat_key)}",
+                "name": f"<!i>{cat_name}",
                 "lore": [
                     "<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 生成",
                     "<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
@@ -212,6 +282,15 @@ class IAConverter(BaseConverter):
                 "item-name": self._format_display_name(display_name, data)
             }
         }
+        
+        lore_value = data.get("lore")
+        if lore_value is not None:
+            ce_lore = self._normalize_lore(lore_value)
+            if ce_lore is not None:
+                ce_item["data"]["lore"] = ce_lore
+        
+        if "model_id" in resource:
+            ce_item["data"]["custom-model-data"] = resource["model_id"]
 
         # 根据材质或行为处理特定类型
         behaviours = data.get("behaviours", {})
@@ -230,6 +309,199 @@ class IAConverter(BaseConverter):
             self._handle_generic_model(ce_item, resource)
 
         self.ce_config["items"][ce_id] = ce_item
+
+    def _convert_recipes(self, recipes_data):
+        if not isinstance(recipes_data, dict):
+            return
+        for group_key, group_data in recipes_data.items():
+            if not isinstance(group_data, dict):
+                continue
+            for recipe_key, recipe_data in group_data.items():
+                if not isinstance(recipe_data, dict):
+                    continue
+                if recipe_data.get("enabled") is False:
+                    continue
+                ce_recipe_id = self._normalize_recipe_id(recipe_key)
+                if not ce_recipe_id:
+                    continue
+                ce_recipe = {}
+                ce_type = self._map_recipe_type(group_key, recipe_data)
+                if ce_type:
+                    ce_recipe["type"] = ce_type
+                if ce_type == "shaped":
+                    pattern = recipe_data.get("pattern")
+                    ingredients = recipe_data.get("ingredients", {})
+                    if pattern:
+                        ce_recipe["pattern"] = self._normalize_pattern(pattern, ingredients)
+                    if ingredients:
+                        ce_recipe["ingredients"] = {
+                            k: self._normalize_recipe_item(v) for k, v in ingredients.items()
+                        }
+                elif ce_type == "shapeless":
+                    ingredients = recipe_data.get("ingredients", [])
+                    ce_recipe["ingredients"] = self._normalize_shapeless_ingredients(ingredients)
+                elif ce_type in ["smelting", "blasting", "smoking", "campfire_cooking"]:
+                    ingredient = recipe_data.get("ingredient")
+                    if ingredient is None:
+                        ingredient = recipe_data.get("ingredients")
+                    if isinstance(ingredient, list):
+                        ingredient = ingredient[0] if ingredient else None
+                    if ingredient is not None:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    experience = recipe_data.get("experience")
+                    if experience is not None:
+                        ce_recipe["experience"] = experience
+                    time_val = recipe_data.get("time")
+                    if time_val is None:
+                        time_val = recipe_data.get("cookingTime")
+                    if time_val is not None:
+                        ce_recipe["time"] = time_val
+                    category = recipe_data.get("category")
+                    if category:
+                        ce_recipe["category"] = category
+                    group_val = recipe_data.get("group")
+                    if group_val:
+                        ce_recipe["group"] = group_val
+                elif ce_type == "stonecutting":
+                    ingredient = recipe_data.get("ingredient")
+                    if ingredient is not None:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    group_val = recipe_data.get("group")
+                    if group_val:
+                        ce_recipe["group"] = group_val
+                elif ce_type == "smithing_transform":
+                    template = recipe_data.get("template") or recipe_data.get("template-type")
+                    base = recipe_data.get("base")
+                    addition = recipe_data.get("addition")
+                    if template:
+                        ce_recipe["template-type"] = self._normalize_recipe_item(template)
+                    if base:
+                        ce_recipe["base"] = self._normalize_recipe_item(base)
+                    if addition:
+                        ce_recipe["addition"] = self._normalize_recipe_item(addition)
+                    merge_components = recipe_data.get("merge-components")
+                    if merge_components is not None:
+                        ce_recipe["merge-components"] = merge_components
+                elif ce_type == "brewing":
+                    ingredient = recipe_data.get("ingredient")
+                    container = recipe_data.get("container")
+                    if ingredient:
+                        ce_recipe["ingredient"] = self._normalize_recipe_item(ingredient)
+                    if container:
+                        ce_recipe["container"] = self._normalize_recipe_item(container)
+
+                result = recipe_data.get("result")
+                if result is not None:
+                    result_id = None
+                    result_count = None
+                    if isinstance(result, dict):
+                        result_id = result.get("item") or result.get("id")
+                        result_count = result.get("amount") or result.get("count")
+                    else:
+                        result_id = result
+                    if result_id is not None:
+                        ce_result = {"id": self._normalize_recipe_item(result_id)}
+                        if result_count is None:
+                            result_count = 1
+                        ce_result["count"] = result_count
+                        ce_recipe["result"] = ce_result
+
+                if ce_recipe:
+                    self.ce_config["recipes"][ce_recipe_id] = ce_recipe
+
+    def _normalize_recipe_id(self, raw_id):
+        if not raw_id:
+            return None
+        raw_id = str(raw_id)
+        if ":" in raw_id:
+            return raw_id
+        return f"{self.namespace}:{raw_id}"
+
+    def _normalize_recipe_item(self, value):
+        if value is None:
+            return value
+        if isinstance(value, dict):
+            item_id = value.get("item") or value.get("id")
+            if item_id is None:
+                return None
+            return self._normalize_recipe_item(item_id)
+        if isinstance(value, str):
+            item = value.strip()
+            if not item:
+                return item
+            if item.startswith("#"):
+                tag = item[1:]
+                if ":" in tag:
+                    ns, path = tag.split(":", 1)
+                    if ns == "minecraft":
+                        return f"#minecraft:{path.lower()}"
+                    return f"#{ns}:{path}"
+                return f"#minecraft:{tag.lower()}"
+            if ":" in item:
+                ns, path = item.split(":", 1)
+                if ns == "minecraft":
+                    return f"minecraft:{path.lower()}"
+                return f"{ns}:{path}"
+            return f"minecraft:{item.lower()}"
+        return value
+
+    def _normalize_pattern(self, pattern, ingredients):
+        if not isinstance(pattern, list):
+            return pattern
+        keys = set(ingredients.keys()) if isinstance(ingredients, dict) else set()
+        normalized = []
+        for row in pattern:
+            row_str = str(row)
+            if not keys:
+                normalized.append(row_str)
+                continue
+            new_row = "".join(ch if ch in keys else " " for ch in row_str)
+            normalized.append(new_row)
+        return normalized
+
+    def _normalize_shapeless_ingredients(self, ingredients):
+        if isinstance(ingredients, list):
+            normalized = []
+            for item in ingredients:
+                if isinstance(item, list):
+                    normalized.append([self._normalize_recipe_item(x) for x in item])
+                else:
+                    normalized.append(self._normalize_recipe_item(item))
+            return normalized
+        if isinstance(ingredients, dict):
+            return [self._normalize_recipe_item(v) for v in ingredients.values()]
+        return ingredients
+
+    def _map_recipe_type(self, group_key, recipe_data):
+        group = str(group_key).lower()
+        if isinstance(recipe_data, dict):
+            if recipe_data.get("shapeless") is True:
+                return "shapeless"
+        mapping = {
+            "crafting_table": "shaped",
+            "shapeless": "shapeless",
+            "shapeless_crafting": "shapeless",
+            "furnace": "smelting",
+            "smelting": "smelting",
+            "blast_furnace": "blasting",
+            "blasting": "blasting",
+            "smoker": "smoking",
+            "smoking": "smoking",
+            "campfire": "campfire_cooking",
+            "campfire_cooking": "campfire_cooking",
+            "stonecutting": "stonecutting",
+            "smithing": "smithing_transform",
+            "smithing_transform": "smithing_transform",
+            "brewing": "brewing"
+        }
+        if group in mapping:
+            return mapping[group]
+        if isinstance(recipe_data, dict):
+            if "pattern" in recipe_data:
+                return "shaped"
+            if isinstance(recipe_data.get("ingredients"), list):
+                return "shapeless"
+        return None
 
     def _is_armor(self, material, ia_data=None):
         suffixes = ["_HELMET", "_CHESTPLATE", "_LEGGINGS", "_BOOTS"]
@@ -268,10 +540,10 @@ class IAConverter(BaseConverter):
         if equipment_id:
             # 如果材质是默认的 STONE，更新材质以确保其可穿戴
             if ce_item["material"] == "STONE":
-                if slot == "head": ce_item["material"] = "LEATHER_HELMET"
-                elif slot == "chest": ce_item["material"] = "LEATHER_CHESTPLATE"
-                elif slot == "legs": ce_item["material"] = "LEATHER_LEGGINGS"
-                elif slot == "feet": ce_item["material"] = "LEATHER_BOOTS"
+                if slot == "head": ce_item["material"] = "DIAMOND_HELMET"
+                elif slot == "chest": ce_item["material"] = "DIAMOND_CHESTPLATE"
+                elif slot == "legs": ce_item["material"] = "DIAMOND_LEGGINGS"
+                elif slot == "feet": ce_item["material"] = "DIAMOND_BOOTS"
             
             # 处理 ID 中可能存在的命名空间
             # 形式: namespace:id -> 移除 namespace 部分
@@ -344,6 +616,9 @@ class IAConverter(BaseConverter):
         """
         if not model_path or not self.ia_resourcepack_root:
             return 0.5
+        
+        # 确保 model_path 是字符串
+        model_path = str(model_path)
             
         target_namespace = self.namespace
         clean_path = model_path
@@ -519,39 +794,41 @@ class IAConverter(BaseConverter):
         #将家具拆分为多个 1x1 的 Shulker 碰撞箱
         # 墙面家具不需要碰撞箱
         hitboxes = []
-        if "hitbox" in furniture_data and placement_type != "wall":
+        
+        # 获取 IA 偏移 (如果有 hitbox 定义)
+        w_offset = 0
+        h_offset = 0
+        l_offset = 0
+        
+        has_hitbox_def = "hitbox" in furniture_data
+        if has_hitbox_def:
             ia_hitbox = furniture_data["hitbox"]
-            is_solid = furniture_data.get("solid", True)
-            
-            # 获取 IA 偏移
             w_offset = ia_hitbox.get("width_offset", 0)
             h_offset = ia_hitbox.get("height_offset", 0)
             l_offset = ia_hitbox.get("length_offset", 0)
-            
-            # 天花板家具修正：Hitbox 需要向下移动
-            if placement_type == "ceiling":
-                h_offset -= height
-            
-            # 只有 solid 的家具才生成 shulker 碰撞箱矩阵
-            # 非 solid 的家具可能需要 interaction 类型 (暂不处理或生成单个)
-            # 特殊情况: 如果是可坐的 (sit_data)，使用 interaction 类型以支持座位
-            # 并且根据 solid 属性设置 blocks-building
+
+        # 天花板家具修正：Hitbox 需要向下移动
+        if placement_type == "ceiling":
+            h_offset -= height
+
+        is_solid = furniture_data.get("solid", True)
+        
+        # 逻辑修改: 即使没有 hitbox 定义，只要有 sit_data，也应该生成交互碰撞箱
+        # 或者如果有 hitbox 定义
+        
+        if placement_type != "wall":
             if sit_data:
                 # 提取座位高度
-                
                 ia_sit_height = sit_data.get("sit_height", 0.5)
+                # 修正: 保持原有的计算逻辑，但移除 hitbox 依赖
                 ce_seat_y = ia_sit_height - 0.85
                 
                 # 根据 width 生成多个座位
-                # 逻辑：在 X 轴上分布座位
                 seats = []
                 w_range = int(round(width))
                 if w_range <= 1:
                     seats.append(f"0,{ce_seat_y:g},0")
                 else:
-                    # 居中分布
-                    # 例如 width=3: -1, 0, 1
-                    # width=2: -0.5, 0.5
                     for i in range(w_range):
                         offset_x = i - (w_range - 1) / 2.0
                         seats.append(f"{offset_x:g},{ce_seat_y:g},0")
@@ -565,63 +842,54 @@ class IAConverter(BaseConverter):
                     "interactive": True,
                     "seats": seats
                 })
+            
+            elif has_hitbox_def:
+                if is_solid:
+                    # 遍历体积生成 1x1 碰撞箱
+                    w_range = int(round(width))
+                    h_range = int(round(height))
+                    l_range = int(round(length))
+                    
+                    w_range = max(1, w_range)
+                    h_range = max(1, h_range)
+                    l_range = max(1, l_range)
 
-            elif is_solid:
-                # 遍历体积生成 1x1 碰撞箱
-                # width -> x, height -> y, length -> z
-                # 确保转换为整数循环范围
-                w_range = int(round(width))
-                h_range = int(round(height))
-                l_range = int(round(length))
-                
-                # 如果尺寸小于 1，至少生成 1 个
-                w_range = max(1, w_range)
-                h_range = max(1, h_range)
-                l_range = max(1, l_range)
+                    for y in range(h_range):
+                        for x in range(w_range):
+                            for z in range(l_range):
+                                rel_x = x - (w_range - 1) / 2.0
+                                rel_y = y 
+                                rel_z = z - (l_range - 1) / 2.0
+                                
+                                final_x = rel_x + w_offset
+                                final_y = rel_y + h_offset
+                                final_z = rel_z + l_offset
+                                
+                                import math
+                                final_x = math.floor(final_x + 0.5)
+                                final_y = math.floor(final_y + 0.5)
+                                final_z = math.floor(final_z + 0.5)
+                                
+                                pos_str = f"{int(final_x)},{int(final_y)},{int(final_z)}"
+                                
+                                hitboxes.append({
+                                    "position": pos_str,
+                                    "type": "shulker",
+                                    "blocks-building": True,
+                                    "interactive": True
+                                })
+                else:
+                    # 非实体，生成一个交互框
+                    hitboxes.append({
+                        "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
+                        "type": "interaction",
+                        "blocks-building": False,
+                        "width": width,
+                        "height": height,
+                        "interactive": True
+                    })
 
-                for y in range(h_range):
-                    for x in range(w_range):
-                        for z in range(l_range):
-                            # 计算相对中心的位置
-                            # 居中逻辑: (i - (count - 1) / 2)
-                            
-                            rel_x = x - (w_range - 1) / 2.0
-                            rel_y = y 
-                            
-                            rel_z = z - (l_range - 1) / 2.0
-                            
-                            # 应用偏移
-                            final_x = rel_x + w_offset
-                            final_y = rel_y + h_offset
-                            final_z = rel_z + l_offset
-                            
-                            # Shulker 位置应该是整数
-                            # 使用标准四舍五入逻辑: floor(x + 0.5)
-                            import math
-                            final_x = math.floor(final_x + 0.5)
-                            final_y = math.floor(final_y + 0.5)
-                            final_z = math.floor(final_z + 0.5)
-                            
-                            pos_str = f"{int(final_x)},{int(final_y)},{int(final_z)}"
-                            
-                            hitboxes.append({
-                                "position": pos_str,
-                                "type": "shulker",
-                                "blocks-building": True,
-                                "interactive": True
-                            })
-            else:
-                # 非实体，生成一个交互框
-                hitboxes.append({
-                    "position": f"{w_offset:g},{h_offset:g},{l_offset:g}",
-                    "type": "interaction",
-                    "blocks-building": False,
-                    "width": width,
-                    "height": height,
-                    "interactive": True
-                })
-
-        elif placement_type == "ceiling":
+        if placement_type == "ceiling" and not hitboxes:
             # 针对没有碰撞体积的情况下天花板家具要额外加入 position: 0,-1,0
             hitboxes.append({
                 "type": "interaction",
@@ -632,7 +900,7 @@ class IAConverter(BaseConverter):
                 "blocks-building": False
             })
 
-        elif placement_type == "wall":
+        elif placement_type == "wall" and not hitboxes:
             # 针对没有碰撞体积的情况下墙面家具要额外加入 position: 0,-0.5,0
             hitboxes.append({
                 "type": "interaction",
@@ -659,6 +927,48 @@ class IAConverter(BaseConverter):
              return f"{self.namespace}:{path}"
         return f"{self.namespace}:item/{path}"
 
+    def _find_model_path_variant(self, base_path, variants):
+        """
+        在资源包中查找存在的模型变体。
+        base_path: 基础模型路径 (e.g. "namespace:path/to/bow")
+        variants: 候选后缀列表 (e.g. ["_0", "_pulling_0"])
+        
+        返回: 找到的第一个存在的路径 (添加了后缀的完整路径)，如果都没找到，返回默认的第一个变体路径。
+        """
+        if not self.ia_resourcepack_root:
+             return f"{base_path}{variants[0]}"
+             
+        # 解析 base_path
+        # 可能是 "namespace:path" 或 "path" (使用 self.namespace)
+        if ":" in base_path:
+            ns, rel_path = base_path.split(":", 1)
+        else:
+            ns = self.namespace
+            rel_path = base_path
+        
+        # 确保移除 .json
+        if rel_path.endswith(".json"):
+            rel_path = rel_path[:-5]
+            
+        # 尝试每个变体
+        for suffix in variants:
+            check_path = f"{rel_path}{suffix}"
+            
+            # 1. 尝试 assets/<namespace>/models/<check_path>.json
+            full_path = os.path.join(self.ia_resourcepack_root, "assets", ns, "models", f"{check_path}.json")
+            if os.path.exists(full_path):
+                 return check_path if ":" not in base_path else f"{ns}:{check_path}"
+                 
+            # 2. 尝试 <namespace>/models/<check_path>.json (非标准)
+            full_path_2 = os.path.join(self.ia_resourcepack_root, ns, "models", f"{check_path}.json")
+            if os.path.exists(full_path_2):
+                 return check_path if ":" not in base_path else f"{ns}:{check_path}"
+
+        # 如果都没找到，返回默认 (第一个变体)
+        # 移除 .json 后缀确保路径干净
+        base_clean = base_path[:-5] if base_path.endswith(".json") else base_path
+        return f"{base_clean}{variants[0]}"
+
     def _handle_complex_item(self, ce_item, key, ia_data, material):
         # 为此物品创建一个模板
         template_id = f"models:{self.namespace}_{key}_model"
@@ -669,6 +979,18 @@ class IAConverter(BaseConverter):
         
         resource = ia_data.get("resource", {})
         base_model_path = resource.get("model_path", "")
+        textures = resource.get("textures")
+        if not textures and resource.get("texture"):
+            val = resource.get("texture")
+            if isinstance(val, list):
+                textures = val
+            else:
+                textures = [val]
+        
+        if material in ["BOW", "CROSSBOW"] and textures:
+            expanded_textures = self._expand_bow_textures(textures)
+            ce_item["textures"] = self._normalize_textures_for_item(expanded_textures, ce_item)
+            return
         
         if material == "BOW":
             template_def = {
@@ -688,9 +1010,12 @@ class IAConverter(BaseConverter):
             }
             # 推断路径
             args["bow_model"] = self._get_model_ref(base_model_path)
-            args["bow_pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
-            args["bow_pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
-            args["bow_pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
+            
+            # 动态查找 pulling_0, pulling_1, pulling_2
+            # 优先级: _pulling_0 (IA常用), _0 (原版风格)
+            args["bow_pulling_0_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_0", "_0"]))
+            args["bow_pulling_1_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_1", "_1"]))
+            args["bow_pulling_2_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_2", "_2"]))
 
         elif material == "CROSSBOW":
             template_def = {
@@ -716,11 +1041,12 @@ class IAConverter(BaseConverter):
                 }
             }
             args["model"] = self._get_model_ref(base_model_path)
-            args["arrow_model"] = self._get_model_ref(f"{base_model_path}_charged")
-            args["firework_model"] = self._get_model_ref(f"{base_model_path}_firework")
-            args["pulling_0_model"] = self._get_model_ref(f"{base_model_path}_0")
-            args["pulling_1_model"] = self._get_model_ref(f"{base_model_path}_1")
-            args["pulling_2_model"] = self._get_model_ref(f"{base_model_path}_2")
+            args["arrow_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_charged", "_arrow"]))
+            args["firework_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_firework", "_rocket"]))
+            
+            args["pulling_0_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_0", "_0"]))
+            args["pulling_1_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_1", "_1"]))
+            args["pulling_2_model"] = self._get_model_ref(self._find_model_path_variant(base_model_path, ["_pulling_2", "_2"]))
             
         elif material == "SHIELD":
             template_def = {
@@ -751,11 +1077,86 @@ class IAConverter(BaseConverter):
             "arguments": args
         }
 
+    def _expand_bow_textures(self, textures):
+        if not textures:
+            return textures
+        cleaned = []
+        for tex in textures:
+            tex_str = str(tex)
+            if tex_str.lower().endswith(".png"):
+                tex_str = tex_str[:-4]
+            tex_str = tex_str.replace("\\", "/")
+            if ":" in tex_str:
+                tex_str = tex_str.split(":", 1)[1]
+            if tex_str.startswith("textures/"):
+                tex_str = tex_str[len("textures/"):]
+            cleaned.append(tex_str)
+        
+        base = cleaned[0]
+        style = "numeric"
+        for tex_str in cleaned:
+            if tex_str.endswith("_pulling_0"):
+                base = tex_str[:-len("_pulling_0")]
+                style = "pulling"
+                break
+        if style == "numeric":
+            for tex_str in cleaned:
+                if tex_str.endswith("_0"):
+                    base = tex_str[:-2]
+                    break
+        
+        if style == "pulling":
+            variants = [f"{base}_pulling_0", f"{base}_pulling_1", f"{base}_pulling_2"]
+        else:
+            variants = [f"{base}_0", f"{base}_1", f"{base}_2"]
+        
+        expanded = []
+        for item in [base] + variants + cleaned:
+            if item not in expanded:
+                expanded.append(item)
+        return expanded
+
+    def _normalize_textures_for_item(self, textures, ce_item):
+        ce_textures = []
+        is_armor_item = self._is_armor(ce_item.get("material", ""))
+        for tex in textures:
+            tex_str = str(tex)
+            if tex_str.lower().endswith(".png"):
+                tex_str = tex_str[:-4]
+            
+            tex_str = tex_str.replace("\\", "/")
+            
+            if ":" in tex_str:
+                tex_str = tex_str.split(":", 1)[1]
+                
+            if tex_str.startswith("textures/"):
+                tex_str = tex_str[len("textures/"):]
+                
+            if is_armor_item:
+                if tex_str.startswith("item/armor/"):
+                    final_path = tex_str
+                else:
+                    if tex_str.startswith("item/"):
+                        tex_str = tex_str[len("item/"):]
+                    if tex_str.startswith("armor/"):
+                        tex_str = tex_str[len("armor/"):]
+                    final_path = f"item/armor/{tex_str}"
+            else:
+                if not tex_str.startswith("item/") and not tex_str.startswith("block/"):
+                    tex_str = f"item/{tex_str}"
+                final_path = tex_str
+                
+            ce_textures.append(f"{self.namespace}:{final_path}")
+        return ce_textures
+
     def _handle_generic_model(self, ce_item, resource):
         model_path = resource.get("model_path")
         
         # 情况 1: 显式模型路径
         if model_path:
+            # 确保 model_path 是字符串
+            model_path = str(model_path)
+            
             # 如果 model_path 中包含命名空间 (例如 "namespace:path")，则移除命名空间部分
             # 因为 CraftEngine 会自动拼接当前命名空间，或者我们手动拼接时避免重复
             if ":" in model_path:
@@ -777,8 +1178,8 @@ class IAConverter(BaseConverter):
                 "path": f"{self.namespace}:{final_path}"
             }
         
-        # 情况 2: 从纹理生成模型
-        elif resource.get("generate") is True:
+        # 情况 2: 处理纹理 (不再生成模型，直接使用 textures)
+        else:
             textures = resource.get("textures")
             
             # 兼容 "texture" 字段 
@@ -790,34 +1191,11 @@ class IAConverter(BaseConverter):
                     textures = [val]
 
             if textures:
-                # 使用第一个纹理路径作为模型路径的基础
+                ce_item["textures"] = self._normalize_textures_for_item(textures, ce_item)
                 
-                texture_path = textures[0]
-                # 如果存在 .png 扩展名则移除 
-                if texture_path.endswith(".png"):
-                    texture_path = texture_path[:-4]
-                    
-                # 检查 texture_path 是否已经包含 item/ 前缀，避免双重嵌套
-                parts = texture_path.split("/")
-                if parts[0] == "item":
-                    final_path = texture_path
-                else:
-                    final_path = f"item/{texture_path}"
-                    
-                ce_item["model"] = {
-                    "type": "minecraft:model",
-                    "path": f"{self.namespace}:{final_path}"
-                }
-
-                # 注册此模型以进行生成
-                
-                model_key = f"{final_path}.json"
-                self.generated_models[model_key] = {
-                    "parent": "minecraft:item/generated",
-                    "textures": {
-                        "layer0": f"{self.namespace}:{final_path}"
-                    }
-                }
+                # 之前生成模型的代码已移除
+                # if textures:
+                #     # ... (旧代码)
 
     def _convert_equipments(self, equipments_data):
         for eq_key, eq_data in equipments_data.items():
@@ -829,9 +1207,11 @@ class IAConverter(BaseConverter):
             }
             
             if "layer_1" in eq_data:
-                ce_eq["humanoid"] = f"{self.namespace}:{eq_data['layer_1']}"
+                self._register_equipment_texture(eq_data["layer_1"], is_leggings=False)
+                ce_eq["humanoid"] = self._normalize_equipment_texture_path(eq_data["layer_1"], is_leggings=False)
             if "layer_2" in eq_data:
-                ce_eq["humanoid-leggings"] = f"{self.namespace}:{eq_data['layer_2']}"
+                self._register_equipment_texture(eq_data["layer_2"], is_leggings=True)
+                ce_eq["humanoid-leggings"] = self._normalize_equipment_texture_path(eq_data["layer_2"], is_leggings=True)
                 
             self.ce_config["equipments"][ce_eq_id] = ce_eq
 
@@ -848,21 +1228,13 @@ class IAConverter(BaseConverter):
             
             # 映射 layer_1 -> humanoid
             if "layer_1" in armor_data:
-                # IA: armor/layer_1
-                # CE: namespace:armor/layer_1 
-                layer_1_path = armor_data["layer_1"]
-
-                if layer_1_path.endswith(".png"):
-                     layer_1_path = layer_1_path[:-4]
-                
-                ce_entry["humanoid"] = f"{self.namespace}:{layer_1_path}"
+                self._register_equipment_texture(armor_data["layer_1"], is_leggings=False)
+                ce_entry["humanoid"] = self._normalize_equipment_texture_path(armor_data["layer_1"], is_leggings=False)
 
             # 映射 layer_2 -> humanoid-leggings
             if "layer_2" in armor_data:
-                layer_2_path = armor_data["layer_2"]
-                if layer_2_path.endswith(".png"):
-                     layer_2_path = layer_2_path[:-4]
-                ce_entry["humanoid-leggings"] = f"{self.namespace}:{layer_2_path}"
+                self._register_equipment_texture(armor_data["layer_2"], is_leggings=True)
+                ce_entry["humanoid-leggings"] = self._normalize_equipment_texture_path(armor_data["layer_2"], is_leggings=True)
 
             self.ce_config["equipments"][ce_key] = ce_entry
 
@@ -878,3 +1250,13 @@ class IAConverter(BaseConverter):
              default_color = "<#FFCF20>"
              
         return f"<!i>{default_color}{name}"
+
+    def _normalize_lore(self, lore_value):
+        # 将 lore 转为字符串列表，保持内容原样
+        if lore_value is None:
+            return None
+        if isinstance(lore_value, list):
+            return [str(line) for line in lore_value]
+        if isinstance(lore_value, str):
+            return [lore_value]
+        return None

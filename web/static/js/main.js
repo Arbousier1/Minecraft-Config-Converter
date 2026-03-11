@@ -86,9 +86,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const formData = new FormData();
         formData.append('session_id', sessionId);
         
-        const targetSelect = document.getElementById('target-format-select');
-        if (targetSelect) {
-            formData.append('target_format', targetSelect.value);
+        const sourceInput = document.getElementById('selected-source');
+        if (sourceInput && sourceInput.value) {
+            formData.append('source_format', sourceInput.value);
+        }
+
+        const targetInput = document.getElementById('selected-target');
+        if (targetInput && targetInput.value) {
+            formData.append('target_format', targetInput.value);
+        } else {
+            const targetSelect = document.getElementById('target-format-select');
+            if (targetSelect) {
+                formData.append('target_format', targetSelect.value);
+            }
         }
 
         const namespaceInput = document.getElementById('namespace-input');
@@ -138,18 +148,62 @@ document.addEventListener('DOMContentLoaded', () => {
     function showAnalysisReport(report, sessionId) {
         progressSection.style.display = 'none';
         
-        // 生成目标格式选择器
-        let targetOptions = '';
+        // 支持的插件列表 (后端未返回时使用默认值)
+        const supportedPlugins = report.supported_plugins || [
+            {id: "ItemsAdder", name: "ItemsAdder", icon: "📦"},
+            {id: "Nexo", name: "Nexo", icon: "🧩"},
+            {id: "Oraxen", name: "Oraxen", icon: "💎"},
+            {id: "CraftEngine", name: "CraftEngine", icon: "⚙️"},
+            {id: "MythicCrucible", name: "MythicCrucible", icon: "⚔️"},
+            {id: "HMCCosmetics", name: "HMCCosmetics", icon: "👒"}
+        ];
+
+        // 默认选择
+        let selectedSource = report.source_formats[0] || null;
+        // 自动选择第一个可用的目标
+        let selectedTarget = null;
         if (report.available_targets && report.available_targets.length > 0) {
-            targetOptions = report.available_targets.map(t => `<option value="${t}">${t}</option>`).join('');
-        } else {
-            targetOptions = '<option value="" disabled selected>无可用转换</option>';
+             selectedTarget = report.available_targets[0];
         }
 
-        // 格式化源格式标签
-        let sourceFormatsHtml = report.source_formats && report.source_formats.length > 0 
-            ? report.source_formats.map(f => `<span class="value source-format">${f}</span>`).join(' ')
-            : '<span class="value source-format">未知</span>';
+        // 生成插件网格 HTML
+        function generatePluginGrid(isSource) {
+            return supportedPlugins.map(p => {
+                let isSelectable = false;
+                let isSelected = false;
+
+                if (isSource) {
+                    // 源插件：必须在检测到的格式中
+                    if (report.source_formats.includes(p.id)) {
+                        isSelectable = true;
+                        if (p.id === selectedSource) isSelected = true;
+                    }
+                } else {
+                    // 目标插件：必须不在检测到的格式中 (Constraint 3) 且在可用目标中
+                    if (!report.source_formats.includes(p.id)) {
+                        if (report.available_targets.includes(p.id)) {
+                            isSelectable = true;
+                            if (p.id === selectedTarget) isSelected = true;
+                        }
+                        // 也可以显示为禁用状态，如果不满足条件
+                    }
+                }
+
+                const classes = `plugin-card ${isSelectable ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`;
+                
+                // 判断是 emoji 还是图片路径
+                const iconContent = (p.icon.includes('/') || p.icon.includes('.')) 
+                    ? `<img src="${p.icon}" alt="${p.name}">`
+                    : p.icon;
+
+                return `
+                    <div class="${classes}" data-id="${p.id}">
+                        <div class="plugin-icon">${iconContent}</div>
+                        <div class="plugin-name">${p.name}</div>
+                    </div>
+                `;
+            }).join('');
+        }
 
         // 生成警告信息
         let warningHtml = '';
@@ -165,21 +219,32 @@ document.addEventListener('DOMContentLoaded', () => {
             <div id="report-section" class="report-section">
                 <h3>📦 包内容分析</h3>
                 ${warningHtml}
+                
+                <div class="plugin-selection-container">
+                    <div class="plugin-column">
+                        <h4>源插件</h4>
+                        <div class="plugin-grid" id="source-plugins-grid">
+                            ${generatePluginGrid(true)}
+                        </div>
+                    </div>
+                    <div class="arrow-separator">➜</div>
+                    <div class="plugin-column">
+                        <h4>目标插件</h4>
+                        <div class="plugin-grid" id="target-plugins-grid">
+                            ${generatePluginGrid(false)}
+                        </div>
+                    </div>
+                </div>
+
+                <input type="hidden" id="selected-source" value="${selectedSource || ''}">
+                <input type="hidden" id="selected-target" value="${selectedTarget || ''}">
+
                 <div class="report-grid">
                     <div class="report-item" style="grid-column: span 2;">
                         <span class="label">当前文件:</span>
                         <span class="value filename">${report.filename || '未知'}</span>
                     </div>
-                    <div class="report-item">
-                        <span class="label">检测到的格式:</span>
-                        <div class="format-list">${sourceFormatsHtml}</div>
-                    </div>
-                    <div class="report-item">
-                        <span class="label">目标格式:</span>
-                        <select id="target-format-select" class="target-select" ${report.available_targets.length === 0 ? 'disabled' : ''}>
-                            ${targetOptions}
-                        </select>
-                    </div>
+                    
                     <div class="report-item">
                         <span class="label">命名空间 (可选):</span>
                         <input type="text" id="namespace-input" class="text-input" placeholder="留空使用默认值" title="仅允许小写字母、数字、下划线、连字符和点">
@@ -206,7 +271,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                 </div>
                 <div class="actions">
-                    <button id="start-convert-btn" class="btn-primary" ${report.available_targets.length === 0 ? 'disabled' : ''}>开始转换</button>
+                    <button id="start-convert-btn" class="btn-primary" ${!selectedTarget ? 'disabled' : ''}>开始转换</button>
                     <button onclick="location.reload()" class="btn-secondary">取消</button>
                 </div>
             </div>
@@ -217,6 +282,31 @@ document.addEventListener('DOMContentLoaded', () => {
         if(existing) existing.remove();
         
         main.insertAdjacentHTML('beforeend', reportHtml);
+        
+        // 绑定点击事件
+        const sourceGrid = document.getElementById('source-plugins-grid');
+        const targetGrid = document.getElementById('target-plugins-grid');
+        
+        sourceGrid.addEventListener('click', (e) => {
+            const card = e.target.closest('.plugin-card.selectable');
+            if(card) {
+                const id = card.dataset.id;
+                document.getElementById('selected-source').value = id;
+                sourceGrid.querySelectorAll('.plugin-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+            }
+        });
+        
+        targetGrid.addEventListener('click', (e) => {
+            const card = e.target.closest('.plugin-card.selectable');
+            if(card) {
+                const id = card.dataset.id;
+                document.getElementById('selected-target').value = id;
+                targetGrid.querySelectorAll('.plugin-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+                document.getElementById('start-convert-btn').disabled = false;
+            }
+        });
         
         document.getElementById('start-convert-btn').onclick = () => startConversion(sessionId);
     }
