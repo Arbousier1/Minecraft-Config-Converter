@@ -49,7 +49,7 @@ document.addEventListener("DOMContentLoaded", () => {
         resetTransientUI();
         dropZone.style.display = "none";
         progressSection.style.display = "block";
-        updateProgress(6, "正在上传并分析…");
+        updateProgress(6, "正在上传文件…");
         uploadFile(file);
     }
 
@@ -65,18 +65,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
             const percent = Math.max(8, Math.min(82, (event.loaded / event.total) * 80));
-            updateProgress(percent, "正在上传并分析…");
+            updateProgress(percent, "正在上传文件…");
         };
 
         xhr.onload = () => {
             if (xhr.status === 200) {
                 const response = JSON.parse(xhr.responseText);
-                updateProgress(100, "分析完成");
+                updateProgress(100, "文件检查完成");
                 showAnalysisReport(response.report, response.session_id);
                 return;
             }
 
-            let message = "分析失败。";
+            let message = "文件处理失败。";
             try {
                 const response = JSON.parse(xhr.responseText);
                 message = response.error || message;
@@ -114,7 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         progressSection.style.display = "block";
-        updateProgress(0, "正在执行转换…");
+        updateProgress(0, "正在生成结果…");
 
         const reportSection = document.getElementById("report-section");
         if (reportSection) {
@@ -127,12 +127,12 @@ document.addEventListener("DOMContentLoaded", () => {
         xhr.onload = () => {
             if (xhr.status === 200) {
                 const response = JSON.parse(xhr.responseText);
-                updateProgress(100, "转换完成");
+                updateProgress(100, "处理完成");
                 showResult(response.download_url);
                 return;
             }
 
-            let message = "转换失败。";
+            let message = "生成结果失败。";
             try {
                 const response = JSON.parse(xhr.responseText);
                 message = response.error || message;
@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded", () => {
             }
             if (pseudoProgress < 90) {
                 pseudoProgress += 4;
-                updateProgress(pseudoProgress, "正在执行转换…");
+                updateProgress(pseudoProgress, "正在生成结果…");
             }
         }, 180);
 
@@ -196,23 +196,23 @@ document.addEventListener("DOMContentLoaded", () => {
             <section class="report-card" id="report-section">
                 <div class="report-header">
                     <div>
-                        <span class="section-chip">分析结果</span>
-                        <h3>先确认结构，再决定怎么转。</h3>
+                        <span class="section-chip">已识别</span>
+                        <h3>确认一下，然后开始处理。</h3>
                     </div>
                     <p class="analysis-summary">
-                        检测到 ${escapeHtml(report.source_formats.join(" / ") || "未知格式")}，
-                        可用目标为 ${escapeHtml(report.available_targets.join(" / ") || "暂无")}。
+                        已识别为 ${escapeHtml(report.source_formats.join(" / ") || "未知类型")}，
+                        可转换为 ${escapeHtml(report.available_targets.join(" / ") || "暂不支持")}。
                     </p>
                 </div>
                 ${warningHtml}
                 <div class="plugin-selection">
                     <div class="plugin-column">
-                        <h4>源插件</h4>
+                        <h4>当前类型</h4>
                         <div class="plugin-grid" id="source-plugins-grid">${sourceGrid}</div>
                     </div>
                     <div class="selection-arrow">→</div>
                     <div class="plugin-column">
-                        <h4>目标插件</h4>
+                        <h4>转换为</h4>
                         <div class="plugin-grid" id="target-plugins-grid">${targetGrid}</div>
                     </div>
                 </div>
@@ -226,21 +226,21 @@ document.addEventListener("DOMContentLoaded", () => {
                         <span class="filename-badge">${escapeHtml(report.filename || "未知文件")}</span>
                     </div>
                     <div class="report-item">
-                        <span class="label">命名空间</span>
+                        <span class="label">资源名称</span>
                         <input
                             type="text"
                             id="namespace-input"
                             class="text-input"
-                            placeholder="留空则使用默认值"
+                            placeholder="可选，不填写则自动处理"
                             title="仅允许小写字母、数字、下划线、连字符和点"
                         >
                     </div>
                     <div class="report-item">
                         <span class="label">包含内容</span>
-                        <div class="value">${escapeHtml((report.content_types || []).join(" · ") || "未识别")}</div>
+                        <div class="value">${escapeHtml((report.content_types || []).join(" · ") || "暂未识别")}</div>
                     </div>
                     <div class="report-item">
-                        <span class="label">完整性检查</span>
+                        <span class="label">文件检查</span>
                         <ul class="check-list">
                             <li class="${report.completeness.items_config ? "ok" : "fail"}">物品配置</li>
                             <li class="${report.completeness.categories_config ? "ok" : "fail"}">分类配置</li>
@@ -258,7 +258,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
 
                 <div class="analysis-actions">
-                    <button id="start-convert-btn" class="btn-primary" ${selectedTarget ? "" : "disabled"}>开始转换</button>
+                    <button id="start-convert-btn" class="btn-primary" ${selectedTarget ? "" : "disabled"}>开始处理</button>
                     <button class="btn-secondary" type="button" onclick="location.reload()">重新选择文件</button>
                 </div>
             </section>

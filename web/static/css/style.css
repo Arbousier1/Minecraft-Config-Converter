@@ -19,12 +19,19 @@
     --radius-md: 16px;
 }
 
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+}
+
 * {
     box-sizing: border-box;
 }
 
 body {
     margin: 0;
+    height: 100vh;
     min-height: 100vh;
     color: var(--text);
     background:
@@ -32,9 +39,8 @@ body {
         radial-gradient(circle at bottom right, rgba(111, 134, 118, 0.18), transparent 26%),
         linear-gradient(180deg, #f8f4ec 0%, var(--bg) 52%, #f3ede3 100%);
     font-family: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
-    padding: 32px 22px 40px;
+    padding: 20px 22px 18px;
     position: relative;
-    overflow-x: hidden;
 }
 
 .page-noise,
@@ -70,6 +76,11 @@ body {
     z-index: 1;
     max-width: 1220px;
     margin: 0 auto;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 16px;
+    overflow: hidden;
 }
 
 .topbar {
@@ -77,7 +88,6 @@ body {
     align-items: center;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 24px;
     padding: 10px 2px;
 }
 
@@ -127,8 +137,15 @@ body {
 .layout {
     display: grid;
     grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.75fr);
+    grid-template-rows: auto minmax(0, 1fr);
     gap: 18px;
     align-items: start;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.layout > * {
+    min-width: 0;
 }
 
 .hero-panel,
@@ -145,9 +162,9 @@ body {
 }
 
 .hero-panel {
-    padding: 34px 34px 30px;
+    padding: 28px 30px 24px;
     border-radius: var(--radius-xl);
-    min-height: 230px;
+    min-height: 0;
 }
 
 .hero-panel h2,
@@ -163,7 +180,7 @@ body {
 
 .hero-panel h2 {
     max-width: 12ch;
-    font-size: clamp(2.4rem, 5vw, 4.7rem);
+    font-size: clamp(2.2rem, 4.4vw, 4.1rem);
 }
 
 .upload-card h3,
@@ -197,7 +214,7 @@ body {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    margin-top: 24px;
+    margin-top: 18px;
 }
 
 .hero-tags span,
@@ -214,10 +231,11 @@ body {
 .note-panel {
     display: grid;
     gap: 18px;
+    align-self: stretch;
 }
 
 .note-card {
-    padding: 22px 22px 20px;
+    padding: 20px 20px 18px;
     border-radius: var(--radius-lg);
 }
 
@@ -233,6 +251,9 @@ body {
     grid-column: 1 / -1;
     display: grid;
     gap: 18px;
+    min-height: 0;
+    overflow: hidden;
+    align-content: start;
 }
 
 .upload-card,
@@ -240,13 +261,13 @@ body {
 .report-card,
 .state-card {
     border-radius: 28px;
-    padding: 28px;
+    padding: 24px;
 }
 
 .upload-card {
     position: relative;
     overflow: hidden;
-    min-height: 240px;
+    min-height: 200px;
     display: flex;
     flex-direction: column;
     justify-content: center;
@@ -297,7 +318,7 @@ body {
     flex-wrap: wrap;
     align-items: center;
     gap: 12px;
-    margin-top: 22px;
+    margin-top: 18px;
 }
 
 .btn-primary,
@@ -402,7 +423,7 @@ body {
     grid-template-columns: minmax(0, 1fr) 48px minmax(0, 1fr);
     gap: 18px;
     align-items: center;
-    margin: 24px 0;
+    margin: 20px 0;
 }
 
 .plugin-column h4,
@@ -487,8 +508,8 @@ body {
 }
 
 .report-item {
-    min-height: 132px;
-    padding: 18px;
+    min-height: 116px;
+    padding: 16px;
     border-radius: 20px;
     background: rgba(255, 255, 255, 0.66);
     border: 1px solid rgba(59, 45, 33, 0.08);
@@ -582,16 +603,57 @@ body {
 }
 
 .footer {
-    padding: 26px 4px 10px;
+    padding: 2px 4px 0;
     text-align: center;
     color: var(--text-soft);
     font-size: 0.88rem;
 }
 
+#dynamic-slot {
+    min-height: 0;
+    overflow: hidden;
+}
+
+.report-card {
+    max-height: 100%;
+    min-height: 0;
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+.report-card::-webkit-scrollbar {
+    width: 10px;
+}
+
+.report-card::-webkit-scrollbar-thumb {
+    background: rgba(59, 45, 33, 0.16);
+    border-radius: 999px;
+}
+
 @media (max-width: 960px) {
+    html,
+    body {
+        height: auto;
+        overflow: auto;
+    }
+
     .layout,
     .plugin-selection {
         grid-template-columns: 1fr;
+    }
+
+    body {
+        padding: 20px 18px 24px;
+    }
+
+    .app-shell,
+    .layout,
+    .workspace,
+    #dynamic-slot,
+    .report-card {
+        height: auto;
+        max-height: none;
+        overflow: visible;
     }
 
     .hero-panel h2 {

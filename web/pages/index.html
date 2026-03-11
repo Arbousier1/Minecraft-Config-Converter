@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCC Preview</title>
+    <link rel="icon" type="image/png" href="./static/images/favicon.png">
+    <link rel="stylesheet" href="./static/css/style.css">
+</head>
+<body>
+    <div class="page-noise" aria-hidden="true"></div>
+    <div class="page-orb page-orb-left" aria-hidden="true"></div>
+    <div class="page-orb page-orb-right" aria-hidden="true"></div>
+
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-lockup">
+                <div class="brand-mark">M</div>
+                <div>
+                    <p class="eyebrow">Minecraft Config Converter</p>
+                    <h1>MCC</h1>
+                </div>
+            </div>
+            <a class="btn-quiet" href="https://github.com/Arbousier1/Minecraft-Config-Converter" target="_blank" rel="noreferrer">查看仓库</a>
+        </header>
+
+        <main class="layout">
+            <section class="hero-panel">
+                <p class="hero-kicker">在线界面预览</p>
+                <h2>先看看界面，再决定要不要下载使用。</h2>
+                <p class="hero-copy">
+                    这是一个静态预览页，用来展示上传、识别、处理和结果界面的整体体验。
+                    你可以直接点击按钮查看完整流程。
+                </p>
+                <div class="hero-tags">
+                    <span>ItemsAdder</span>
+                    <span>Nexo</span>
+                    <span>CraftEngine</span>
+                </div>
+            </section>
+
+            <aside class="note-panel">
+                <div class="note-card">
+                    <p class="note-label">预览内容</p>
+                    <ol>
+                        <li>上传区域</li>
+                        <li>识别结果</li>
+                        <li>处理过程</li>
+                        <li>完成状态</li>
+                    </ol>
+                </div>
+                <div class="note-card note-card-accent">
+                    <p class="note-label">说明</p>
+                    <p>这个页面只用于预览界面，不会上传文件，也不会生成真实结果。</p>
+                </div>
+            </aside>
+
+            <section class="workspace">
+                <div
+                    class="upload-card"
+                    id="drop-zone"
+                    role="button"
+                    tabindex="0"
+                    aria-label="预览上传区域"
+                >
+                    <div class="upload-badge">PREVIEW</div>
+                    <h3>查看上传与处理流程</h3>
+                    <p>点击下方按钮，直接演示从识别到完成的整个界面流程。</p>
+                    <div class="upload-actions">
+                        <button class="btn-primary" type="button" id="preview-start-btn">开始预览</button>
+                        <span class="upload-hint">静态演示</span>
+                    </div>
+                </div>
+
+                <div class="progress-card" id="progress-section" style="display: none;">
+                    <div class="section-meta">
+                        <span class="section-chip">处理中</span>
+                        <span class="status-text" id="status-text">正在准备演示内容…</span>
+                    </div>
+                    <div class="progress-rail">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </div>
+
+                <div id="dynamic-slot"></div>
+
+                <div class="state-card success-state" id="result-section" style="display: none;">
+                    <span class="section-chip section-chip-success">已完成</span>
+                    <h3>预览流程已演示完成</h3>
+                    <p>这只是界面展示页，真实转换请下载桌面版使用。</p>
+                    <div class="state-actions">
+                        <a id="download-link" href="https://github.com/Arbousier1/Minecraft-Config-Converter/releases" target="_blank" rel="noreferrer" class="btn-primary">查看发布页</a>
+                        <button class="btn-secondary" type="button" onclick="location.reload()">重新预览</button>
+                    </div>
+                </div>
+
+                <div class="state-card error-state" id="error-section" style="display: none;">
+                    <span class="section-chip section-chip-error">错误</span>
+                    <h3>预览加载失败</h3>
+                    <p id="error-message">请刷新页面后重试。</p>
+                    <div class="state-actions">
+                        <button class="btn-secondary" type="button" onclick="location.reload()">重新开始</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="footer">
+            <p>MCC Preview · GitHub Pages</p>
+        </footer>
+    </div>
+
+    <script src="./preview.js"></script>
+</body>
+</html>

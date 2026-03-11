@@ -26,10 +26,10 @@
 
         <main class="layout">
             <section class="hero-panel">
-                <p class="hero-kicker">参考 Claude 风格重构</p>
-                <h2>把插件配置转换这件事，做得更克制一点。</h2>
+                <p class="hero-kicker">更清爽的转换体验</p>
+                <h2>上传文件，几步完成整理与转换。</h2>
                 <p class="hero-copy">
-                    上传压缩包，先分析格式、资源和完整性，再选择目标插件与命名空间。
+                    选择一个压缩包，程序会自动识别内容，并引导你完成后续设置。
                     当前支持 ItemsAdder 与 Nexo 转为 CraftEngine。
                 </p>
                 <div class="hero-tags">
@@ -44,14 +44,14 @@
                     <p class="note-label">工作流</p>
                     <ol>
                         <li>上传 `.zip` 包</li>
-                        <li>自动识别源格式</li>
-                        <li>确认目标与命名空间</li>
+                        <li>自动识别内容</li>
+                        <li>确认转换方式</li>
                         <li>下载转换结果</li>
                     </ol>
                 </div>
                 <div class="note-card note-card-accent">
-                    <p class="note-label">说明</p>
-                    <p>界面只负责交互与预览，实际转换仍由本地 Go 服务执行。</p>
+                    <p class="note-label">提示</p>
+                    <p>整个过程都在你的电脑上完成，处理完成后会直接提供下载。</p>
                 </div>
             </aside>
 
@@ -64,8 +64,8 @@
                     aria-label="上传 zip 文件"
                 >
                     <div class="upload-badge">ZIP</div>
-                    <h3>拖入资源包或配置包</h3>
-                    <p>也可以点击下方按钮，从本地选择一个 `.zip` 文件开始分析。</p>
+                    <h3>拖入要处理的压缩包</h3>
+                    <p>也可以点击下方按钮，从本地选择一个 `.zip` 文件开始。</p>
                     <input type="file" id="file-input" accept=".zip" hidden>
                     <div class="upload-actions">
                         <button class="btn-primary" type="button" onclick="document.getElementById('file-input').click()">
@@ -78,7 +78,7 @@
                 <div class="progress-card" id="progress-section" style="display: none;">
                     <div class="section-meta">
                         <span class="section-chip">处理中</span>
-                        <span class="status-text" id="status-text">正在上传并分析…</span>
+                        <span class="status-text" id="status-text">正在上传文件…</span>
                     </div>
                     <div class="progress-rail">
                         <div class="progress-fill" id="progress-fill"></div>
@@ -89,8 +89,8 @@
 
                 <div class="state-card success-state" id="result-section" style="display: none;">
                     <span class="section-chip section-chip-success">已完成</span>
-                    <h3>转换结果已经准备好</h3>
-                    <p>下载压缩包后即可继续导入到目标插件结构中。</p>
+                    <h3>你的文件已经准备好了</h3>
+                    <p>下载结果后，就可以继续导入或使用了。</p>
                     <div class="state-actions">
                         <a id="download-link" href="#" class="btn-primary">下载结果</a>
                         <button class="btn-secondary" type="button" onclick="location.reload()">再转换一个</button>
@@ -109,14 +109,14 @@
         </main>
 
         <footer class="footer">
-            <p>本地 WebView2 界面 · MCC Tool · 2026</p>
+            <p>MCC Tool · 2026</p>
         </footer>
     </div>
 
     <script src="/static/js/main.js"></script>
     <script>
         function shutdownServer() {
-            if (!confirm("确定要退出 MCC 吗？")) {
+            if (!confirm("确定要退出吗？")) {
                 return;
             }
             if (typeof window.quitApp === 'function') {
@@ -125,7 +125,7 @@
             }
             fetch('/api/shutdown', { method: 'POST' })
                 .then(() => {
-                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f6f1e7;color:#241f1a;font-family:Segoe UI,sans-serif;'><h1>MCC 已关闭。</h1></div>";
+                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f6f1e7;color:#241f1a;font-family:Segoe UI,sans-serif;'><h1>程序已关闭。</h1></div>";
                 })
                 .catch((err) => console.error(err));
         }
