@@ -3,75 +3,120 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCC - Minecraft Config Converter</title>
+    <title>MCC</title>
     <link rel="icon" type="image/png" href="/static/images/favicon.png">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="top-bar">
-        <button class="btn-exit" onclick="shutdownServer()">
-            <span class="icon-exit">X</span> 退出程序
-        </button>
-    </div>
+    <div class="page-noise" aria-hidden="true"></div>
+    <div class="page-orb page-orb-left" aria-hidden="true"></div>
+    <div class="page-orb page-orb-right" aria-hidden="true"></div>
 
-    <div class="container">
-        <header>
-            <h1>Minecraft 配置转换器</h1>
-            <p>将资源包和配置转换到 CraftEngine 格式</p>
-        </header>
-
-        <main>
-            <div class="upload-section" id="drop-zone">
-                <div class="icon">📨</div>
-                <h2>上传压缩包</h2>
-                <p>拖拽 `.zip` 文件到这里，或点击按钮选择文件</p>
-                <input type="file" id="file-input" accept=".zip" hidden>
-                <button class="btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
-            </div>
-
-            <div class="progress-section" id="progress-section" style="display: none;">
-                <div class="status-text" id="status-text">正在上传...</div>
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill"></div>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand-lockup">
+                <div class="brand-mark">M</div>
+                <div>
+                    <p class="eyebrow">Minecraft Config Converter</p>
+                    <h1>MCC</h1>
                 </div>
             </div>
+            <button class="btn-quiet" type="button" onclick="shutdownServer()">退出</button>
+        </header>
 
-            <div class="result-section" id="result-section" style="display: none;">
-                <div class="success-icon">✓</div>
-                <h3>转换完成</h3>
-                <p>结果已生成，可以直接下载。</p>
-                <a id="download-link" href="#" class="btn-success">下载结果</a>
-                <button class="btn-secondary" onclick="location.reload()">转换另一个</button>
-            </div>
+        <main class="layout">
+            <section class="hero-panel">
+                <p class="hero-kicker">参考 Claude 风格重构</p>
+                <h2>把插件配置转换这件事，做得更克制一点。</h2>
+                <p class="hero-copy">
+                    上传压缩包，先分析格式、资源和完整性，再选择目标插件与命名空间。
+                    当前支持 ItemsAdder 与 Nexo 转为 CraftEngine。
+                </p>
+                <div class="hero-tags">
+                    <span>ItemsAdder</span>
+                    <span>Nexo</span>
+                    <span>CraftEngine</span>
+                </div>
+            </section>
 
-            <div class="error-section" id="error-section" style="display: none;">
-                <div class="error-icon">✕</div>
-                <h3>发生错误</h3>
-                <p id="error-message">未知错误。</p>
-                <button class="btn-secondary" onclick="location.reload()">重试</button>
-            </div>
+            <aside class="note-panel">
+                <div class="note-card">
+                    <p class="note-label">工作流</p>
+                    <ol>
+                        <li>上传 `.zip` 包</li>
+                        <li>自动识别源格式</li>
+                        <li>确认目标与命名空间</li>
+                        <li>下载转换结果</li>
+                    </ol>
+                </div>
+                <div class="note-card note-card-accent">
+                    <p class="note-label">说明</p>
+                    <p>界面只负责交互与预览，实际转换仍由本地 Go 服务执行。</p>
+                </div>
+            </aside>
+
+            <section class="workspace">
+                <div
+                    class="upload-card"
+                    id="drop-zone"
+                    role="button"
+                    tabindex="0"
+                    aria-label="上传 zip 文件"
+                >
+                    <div class="upload-badge">ZIP</div>
+                    <h3>拖入资源包或配置包</h3>
+                    <p>也可以点击下方按钮，从本地选择一个 `.zip` 文件开始分析。</p>
+                    <input type="file" id="file-input" accept=".zip" hidden>
+                    <div class="upload-actions">
+                        <button class="btn-primary" type="button" onclick="document.getElementById('file-input').click()">
+                            选择文件
+                        </button>
+                        <span class="upload-hint">最大 500MB</span>
+                    </div>
+                </div>
+
+                <div class="progress-card" id="progress-section" style="display: none;">
+                    <div class="section-meta">
+                        <span class="section-chip">处理中</span>
+                        <span class="status-text" id="status-text">正在上传并分析…</span>
+                    </div>
+                    <div class="progress-rail">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                </div>
+
+                <div id="dynamic-slot"></div>
+
+                <div class="state-card success-state" id="result-section" style="display: none;">
+                    <span class="section-chip section-chip-success">已完成</span>
+                    <h3>转换结果已经准备好</h3>
+                    <p>下载压缩包后即可继续导入到目标插件结构中。</p>
+                    <div class="state-actions">
+                        <a id="download-link" href="#" class="btn-primary">下载结果</a>
+                        <button class="btn-secondary" type="button" onclick="location.reload()">再转换一个</button>
+                    </div>
+                </div>
+
+                <div class="state-card error-state" id="error-section" style="display: none;">
+                    <span class="section-chip section-chip-error">错误</span>
+                    <h3>处理失败</h3>
+                    <p id="error-message">发生未知错误。</p>
+                    <div class="state-actions">
+                        <button class="btn-secondary" type="button" onclick="location.reload()">重新开始</button>
+                    </div>
+                </div>
+            </section>
         </main>
 
-        <footer>
-            <div class="footer-content">
-                <p>&copy; 2026 MCC Tool</p>
-            </div>
+        <footer class="footer">
+            <p>本地 WebView2 界面 · MCC Tool · 2026</p>
         </footer>
     </div>
 
     <script src="/static/js/main.js"></script>
     <script>
         function shutdownServer() {
-            if (confirm("确定要退出程序吗？")) {
-                fetch('/api/shutdown', { method: 'POST' })
-                    .then(() => {
-                        document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;color:white;background:#202225;'><h1>程序已关闭，可以直接关闭此页面。</h1></div>";
-                    })
-                    .catch((err) => console.error(err));
-            }
-        }
-        shutdownServer = function () {
-            if (!confirm("Exit MCC?")) {
+            if (!confirm("确定要退出 MCC 吗？")) {
                 return;
             }
             if (typeof window.quitApp === 'function') {
@@ -80,10 +125,10 @@
             }
             fetch('/api/shutdown', { method: 'POST' })
                 .then(() => {
-                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;color:white;background:#202225;'><h1>MCC has been closed. You can close this window now.</h1></div>";
+                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;min-height:100vh;background:#f6f1e7;color:#241f1a;font-family:Segoe UI,sans-serif;'><h1>MCC 已关闭。</h1></div>";
                 })
                 .catch((err) => console.error(err));
-        };
+        }
     </script>
 </body>
 </html>
