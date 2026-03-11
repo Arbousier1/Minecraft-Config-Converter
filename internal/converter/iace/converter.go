@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,23 @@ import (
 )
 
 var namespacePattern = regexp.MustCompile(`^[0-9a-z_.-]+$`)
+
+type ValidationError struct {
+	message string
+}
+
+func (e ValidationError) Error() string {
+	return e.message
+}
+
+func IsValidationError(err error) bool {
+	var target ValidationError
+	return errors.As(err, &target)
+}
+
+func badRequestError(message string) error {
+	return ValidationError{message: message}
+}
 
 type Options struct {
 	ExtractDir       string
@@ -77,7 +95,7 @@ func Run(opts Options) (*Result, error) {
 	}
 	if opts.UserNamespace != "" {
 		if !namespacePattern.MatchString(opts.UserNamespace) {
-			return nil, fmt.Errorf("namespace contains invalid characters")
+			return nil, badRequestError("namespace contains invalid characters")
 		}
 		namespace = opts.UserNamespace
 	}
@@ -356,7 +374,7 @@ func loadMergedData(extractDir string) (*scanResult, error) {
 	}
 
 	if !foundItems {
-		return nil, fmt.Errorf("unable to find ItemsAdder item definitions")
+		return nil, badRequestError("unable to find ItemsAdder item definitions")
 	}
 
 	if resourcepackPath == "" {
@@ -384,7 +402,7 @@ func (c *Converter) convertItem(key string, data map[string]any) {
 	ceItem := map[string]any{
 		"material": material,
 		"data": map[string]any{
-			"item-name": formatDisplayName(displayName),
+			"item-name": formatDisplayName(displayName, c.namespace),
 		},
 	}
 	dataSection := ceItem["data"].(map[string]any)
@@ -459,6 +477,7 @@ func (c *Converter) convertCategory(key string, data map[string]any) {
 
 	entry := map[string]any{
 		"name":     "<!i>" + name,
+		"lore":     iaCategoryLore(),
 		"priority": 1,
 		"icon":     icon,
 		"list":     ceItems,
@@ -702,8 +721,20 @@ func buildArchiveName(original, target string) string {
 	return replacer.Replace(name)
 }
 
-func formatDisplayName(name string) string {
-	return "<!i><white>" + strings.ReplaceAll(name, "&", "§")
+func formatDisplayName(name, namespace string) string {
+	defaultColor := "<white>"
+	if strings.Contains(namespace, "elitecreatures") {
+		defaultColor = "<#FFCF20>"
+	}
+	return "<!i>" + defaultColor + strings.ReplaceAll(name, "&", "§")
+}
+
+func iaCategoryLore() []string {
+	return []string{
+		"<!i><gray>该配置由 <#FFFF00>MCC TOOL</#FFFF00> 生成",
+		"<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
+		"<!i><dark_gray>感谢您的支持</dark_gray>",
+	}
 }
 
 func normalizeLore(raw any) []string {

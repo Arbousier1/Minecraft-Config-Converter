@@ -3,6 +3,7 @@ package nexoce
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,23 @@ import (
 )
 
 var namespacePattern = regexp.MustCompile(`^[0-9a-z_.-]+$`)
+
+type ValidationError struct {
+	message string
+}
+
+func (e ValidationError) Error() string {
+	return e.message
+}
+
+func IsValidationError(err error) bool {
+	var target ValidationError
+	return errors.As(err, &target)
+}
+
+func badRequestError(message string) error {
+	return ValidationError{message: message}
+}
 
 type Options struct {
 	ExtractDir       string
@@ -70,7 +88,7 @@ func Run(opts Options) (*Result, error) {
 	convertedCount := 0
 	if opts.UserNamespace != "" {
 		if !namespacePattern.MatchString(opts.UserNamespace) {
-			return nil, fmt.Errorf("namespace contains invalid characters")
+			return nil, badRequestError("namespace contains invalid characters")
 		}
 
 		merged := map[string]any{}
@@ -98,7 +116,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	if convertedCount == 0 {
-		return nil, fmt.Errorf("unable to find Nexo item definitions")
+		return nil, badRequestError("unable to find Nexo item definitions")
 	}
 
 	outputName := buildArchiveName(opts.OriginalFilename, opts.TargetFormat)
@@ -327,7 +345,7 @@ func loadConfigs(extractDir string) (*scanResult, error) {
 	}
 
 	if len(result.configs) == 0 {
-		return nil, fmt.Errorf("unable to find Nexo item definitions")
+		return nil, badRequestError("unable to find Nexo item definitions")
 	}
 
 	return result, nil
@@ -680,10 +698,19 @@ func (c *Converter) generateDefaultCategory() {
 
 	c.config.Categories[c.namespace+":default"] = map[string]any{
 		"name":     "<!i>" + strings.Title(c.namespace),
+		"lore":     nexoCategoryLore(),
 		"priority": 1,
 		"icon":     itemIDs[0],
 		"list":     itemIDs,
 		"hidden":   false,
+	}
+}
+
+func nexoCategoryLore() []string {
+	return []string{
+		"<!i><gray>该配置由<#FFFF00>MCC TOOL</#FFFF00>生成",
+		"<!i><gray>闲鱼店铺: <#FFFF00>快乐售货铺</#FFFF00>",
+		"<!i><dark_gray>感谢您的支持!</dark_gray>",
 	}
 }
 

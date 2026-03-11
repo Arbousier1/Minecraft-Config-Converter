@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	mccassets "github.com/Arbousier1/Minecraft-Config-Converter"
@@ -23,6 +25,7 @@ import (
 )
 
 const maxUploadSize = 500 << 20
+const heartbeatTimeout = 15 * time.Second
 
 type Plugin struct {
 	ID   string `json:"id"`
@@ -43,11 +46,15 @@ type reportPayload struct {
 }
 
 type Server struct {
-	baseDir   string
-	uploadDir string
-	outputDir string
-	mux       *http.ServeMux
-	httpSrv   *http.Server
+	baseDir        string
+	uploadDir      string
+	outputDir      string
+	mux            *http.ServeMux
+	httpSrv        *http.Server
+	lastHeartbeat  atomic.Int64
+	shuttingDown   atomic.Bool
+	monitorStart   sync.Once
+	shutdownSignal sync.Once
 }
 
 func New(baseDir string) (*Server, error) {
@@ -65,6 +72,7 @@ func New(baseDir string) (*Server, error) {
 		return nil, err
 	}
 
+	s.lastHeartbeat.Store(time.Now().UnixNano())
 	s.registerRoutes()
 	return s, nil
 }
@@ -75,6 +83,9 @@ func (s *Server) Handler() http.Handler {
 
 func (s *Server) SetHTTPServer(httpSrv *http.Server) {
 	s.httpSrv = httpSrv
+	s.monitorStart.Do(func() {
+		go s.monitorHeartbeat()
+	})
 }
 
 func (s *Server) registerRoutes() {
@@ -288,7 +299,14 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		err = runErr
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		status := http.StatusInternalServerError
+		switch {
+		case iace.IsValidationError(err):
+			status = http.StatusBadRequest
+		case nexoce.IsValidationError(err):
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
 		return
 	}
 
@@ -326,6 +344,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.lastHeartbeat.Store(time.Now().UnixNano())
 	writeJSON(w, http.StatusOK, map[string]string{"status": "alive"})
 }
 
@@ -336,16 +355,44 @@ func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "server shutting down..."})
-	if s.httpSrv == nil {
-		return
-	}
-
 	go func() {
 		time.Sleep(100 * time.Millisecond)
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = s.httpSrv.Shutdown(ctx)
+		s.shutdown(false)
 	}()
+}
+
+func (s *Server) monitorHeartbeat() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if s.shuttingDown.Load() {
+			return
+		}
+
+		last := s.lastHeartbeat.Load()
+		if last == 0 {
+			continue
+		}
+		if time.Since(time.Unix(0, last)) > heartbeatTimeout {
+			s.shutdown(true)
+			return
+		}
+	}
+}
+
+func (s *Server) shutdown(forceExit bool) {
+	s.shutdownSignal.Do(func() {
+		s.shuttingDown.Store(true)
+		if s.httpSrv != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = s.httpSrv.Shutdown(ctx)
+		}
+		if forceExit {
+			os.Exit(0)
+		}
+	})
 }
 
 func buildReportPayload(report analyzer.Report, filename string) reportPayload {
