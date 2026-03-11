@@ -18,6 +18,7 @@ import (
 
 	mccassets "github.com/Arbousier1/Minecraft-Config-Converter"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/analyzer"
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/converter/iace"
 )
 
 const maxUploadSize = 500 << 20
@@ -173,8 +174,105 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusNotImplemented, map[string]string{
-		"error": "Go rewrite in progress: conversion endpoints are not ported yet on branch rewrite/go.",
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "failed to parse request"})
+		return
+	}
+
+	targetFormat := r.FormValue("target_format")
+	if targetFormat == "" {
+		targetFormat = "CraftEngine"
+	}
+	sourceFormat := r.FormValue("source_format")
+	namespace := r.FormValue("namespace")
+
+	sessionID := r.FormValue("session_id")
+	var (
+		sessionUploadDir string
+		sessionOutputDir string
+		extractDir       string
+		originalFilename string
+	)
+
+	if sessionID != "" {
+		sessionUploadDir = filepath.Join(s.uploadDir, sessionID)
+		sessionOutputDir = filepath.Join(s.outputDir, sessionID)
+		extractDir = filepath.Join(sessionUploadDir, "extracted")
+		if _, err := os.Stat(extractDir); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "session expired or missing"})
+			return
+		}
+		if err := os.MkdirAll(sessionOutputDir, 0o755); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create output session"})
+			return
+		}
+		originalFilename = detectOriginalFilename(sessionUploadDir)
+	} else {
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "missing file"})
+			return
+		}
+		defer file.Close()
+
+		if header.Filename == "" || !strings.HasSuffix(strings.ToLower(header.Filename), ".zip") {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "please upload a .zip file"})
+			return
+		}
+
+		sessionID = newSessionID()
+		sessionUploadDir = filepath.Join(s.uploadDir, sessionID)
+		sessionOutputDir = filepath.Join(s.outputDir, sessionID)
+		if err := os.MkdirAll(sessionUploadDir, 0o755); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create upload session"})
+			return
+		}
+		if err := os.MkdirAll(sessionOutputDir, 0o755); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "failed to create output session"})
+			return
+		}
+
+		zipPath := filepath.Join(sessionUploadDir, filepath.Base(header.Filename))
+		if err := saveUpload(file, zipPath); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		extractDir = filepath.Join(sessionUploadDir, "extracted")
+		if err := extractZip(zipPath, extractDir); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		originalFilename = header.Filename
+	}
+
+	if targetFormat != "CraftEngine" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported target format: " + targetFormat})
+		return
+	}
+
+	if sourceFormat == "Nexo" {
+		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "Nexo conversion is not ported yet in the Go rewrite"})
+		return
+	}
+
+	result, err := iace.Run(iace.Options{
+		ExtractDir:       extractDir,
+		SessionUploadDir: sessionUploadDir,
+		SessionOutputDir: sessionOutputDir,
+		OutputDir:        s.outputDir,
+		OriginalFilename: originalFilename,
+		UserNamespace:    namespace,
+		TargetFormat:     targetFormat,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":       "success",
+		"download_url": result.DownloadURL,
 	})
 }
 
@@ -346,6 +444,22 @@ func contains(items []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func detectOriginalFilename(sessionUploadDir string) string {
+	entries, err := os.ReadDir(sessionUploadDir)
+	if err != nil {
+		return "converted.zip"
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(strings.ToLower(entry.Name()), ".zip") {
+			return entry.Name()
+		}
+	}
+	return "converted.zip"
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

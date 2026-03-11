@@ -12,6 +12,7 @@ Implemented:
 - Embedded frontend assets from `web/`
 - `GET /`
 - `POST /api/analyze`
+- First-pass `ItemsAdder -> CraftEngine` conversion path
 - `GET /api/download/:filename`
 - `POST /api/heartbeat`
 - `POST /api/shutdown`
@@ -19,10 +20,9 @@ Implemented:
 - Package structure analysis ported from `src/analyzer.py`
 
 Not ported yet:
-- `POST /api/convert`
-- ItemsAdder to CraftEngine conversion logic
 - Nexo to CraftEngine conversion logic
-- Packaging converted output
+- Resource-pack migration for ItemsAdder assets
+- Complex ItemsAdder behaviors such as furniture placement and generated model variants
 
 ## Run
 
