@@ -10,8 +10,18 @@ def safe_load_yaml(file_path):
     :raises: 如果加载失败，抛出 yaml.YAMLError 或 OSError
     """
     try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            content = f.read()
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            try:
+                # 尝试 GBK (常见于中文 Windows 环境)
+                with open(file_path, 'r', encoding='gbk') as f:
+                    content = f.read()
+            except UnicodeDecodeError:
+                # 尝试 latin-1 (保证能读取，但可能乱码)
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    content = f.read()
             
         return yaml.safe_load(content)
     except yaml.scanner.ScannerError as e:

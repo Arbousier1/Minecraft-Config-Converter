@@ -13,6 +13,7 @@ import sys
 # 将项目根目录添加到 python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from src.converters.ia_to_ce import IAConverter
+from src.converters.nexo_to_ce import NexoConverter
 from src.analyzer import PackageAnalyzer
 from src.utils.yaml_loader import safe_load_yaml
 
@@ -83,7 +84,14 @@ def analyze():
             if "ItemsAdder" in detected_formats:
                 if "CraftEngine" in detected_formats:
                     warnings.append("检测到包中已包含 CraftEngine 配置。转换可能会覆盖或产生冲突。")
-                available_targets.append("CraftEngine")
+                if "CraftEngine" not in available_targets:
+                    available_targets.append("CraftEngine")
+            
+            if "Nexo" in detected_formats:
+                if "CraftEngine" in detected_formats:
+                    warnings.append("检测到包中已包含 CraftEngine 配置。转换可能会覆盖或产生冲突。")
+                if "CraftEngine" not in available_targets:
+                    available_targets.append("CraftEngine")
                 
             if "CraftEngine" in detected_formats:
                  # 未来支持 CE -> IA
@@ -112,6 +120,7 @@ def convert():
     
     session_id = request.form.get('session_id')
     target_format = request.form.get('target_format', 'CraftEngine') # 默认 CE
+    source_format = request.form.get('source_format') # 新增: 明确源格式
     
     if session_id:
         # 使用已存在的会话
@@ -150,227 +159,327 @@ def convert():
 
     try:
         if target_format == "CraftEngine":
-            # 3. 定位配置和资源 (ItemsAdder -> CraftEngine 逻辑)
-            # 改进逻辑: 扫描所有 YAML 文件并根据内容进行分类
-            ia_items_configs = []
-            ia_categories_configs = []
-            ia_recipes_configs = []
-            ia_resourcepack_path = None
-
-            # 0. 确定扫描根目录
-            scan_root = extract_dir
-            found_ia_dir = False
-            for root, dirs, files in os.walk(extract_dir):
-                for d in dirs:
-                    if d.lower() == "itemsadder":
-                        scan_root = os.path.join(root, d)
-                        found_ia_dir = True
-                        break
-                if found_ia_dir:
-                    break
-            
-            if found_ia_dir:
-                 print(f"Detected ItemsAdder root at: {scan_root}")
-
-            # 第一遍扫描：查找配置文件和标准资源包结构
-            for root, dirs, files in os.walk(scan_root):
-                # --- 资源包检测 ---
-                # 优先级 1: 显式的 "resourcepack" 目录
-                if "resourcepack" in dirs and ia_resourcepack_path is None:
-                    ia_resourcepack_path = os.path.join(root, "resourcepack")
-                
-                # 优先级 2: 直接包含 assets 的目录
-                if "assets" in dirs and ia_resourcepack_path is None:
-                    ia_resourcepack_path = root
-
-                # 优先级 3: 直接包含 models 和 textures 的目录 (非标准结构)
-                if "models" in dirs and "textures" in dirs and ia_resourcepack_path is None:
-                    ia_resourcepack_path = root
-
-                # --- 配置文件检测 ---
-                for f in files:
-                    if f.endswith(".yml") or f.endswith(".yaml"):
-                        full_path = os.path.join(root, f)
-                        try:
-                            data = safe_load_yaml(full_path)
-                            if not data:
-                                continue
-                            
-                            # 检查关键签名
-                            if "items" in data or "equipments" in data or "armors_rendering" in data:
-                                ia_items_configs.append(full_path)
-                            if "categories" in data:
-                                ia_categories_configs.append(full_path)
-                            if "recipes" in data:
-                                ia_recipes_configs.append(full_path)
-                        except Exception:
-                            continue
-
-            # 如果仍未找到资源包，尝试寻找 textures/models 的父级 (处理非标准结构)
-            if ia_resourcepack_path is None:
-                # 如果有配置文件，默认为提取根目录
-                if ia_items_configs:
-                    ia_resourcepack_path = extract_dir
-
-            if not ia_items_configs:
-                 return jsonify({'error': '未能找到包含物品定义的配置文件 (items/equipments)'}), 400
-
-            # 4. 运行转换
-            converter = IAConverter()
-            
-            # 加载并合并所有物品配置
-            merged_items_data = {"items": {}, "equipments": {}, "armors_rendering": {}, "templates": {}, "recipes": {}, "info": {}}
-            
-            for config_path in ia_items_configs:
-                data = converter.load_config(config_path)
-                if not data: continue
-                
-                # 合并逻辑
-                if "info" in data and not merged_items_data["info"]:
-                    merged_items_data["info"] = data["info"] # 使用找到的第一个 info
-                
-                if "items" in data:
-                    merged_items_data.setdefault("items", {}).update(data["items"])
-                    
-                if "equipments" in data:
-                    merged_items_data.setdefault("equipments", {}).update(data["equipments"])
-                    
-                if "armors_rendering" in data:
-                    merged_items_data.setdefault("armors_rendering", {}).update(data["armors_rendering"])
-                    
-                if "templates" in data:
-                    merged_items_data.setdefault("templates", {}).update(data["templates"])
-
-            ia_data = merged_items_data
-            
-            # 如果找到则加载分类
-            if ia_categories_configs:
-                merged_categories = {}
-                for cat_config in ia_categories_configs:
-                    data = converter.load_config(cat_config)
-                    if data and "categories" in data:
-                        merged_categories.update(data["categories"])
-                
-                if merged_categories:
-                    ia_data["categories"] = merged_categories
-
-            if ia_recipes_configs:
-                merged_recipes = {}
-                for recipe_config in ia_recipes_configs:
-                    data = converter.load_config(recipe_config)
-                    if not data:
-                        continue
-                    if "info" in data and not ia_data.get("info"):
-                        ia_data["info"] = data["info"]
-                    recipes_block = data.get("recipes")
-                    if not isinstance(recipes_block, dict):
-                        continue
-                    for group_key, group_data in recipes_block.items():
-                        if group_key not in merged_recipes:
-                            merged_recipes[group_key] = {}
-                        if isinstance(group_data, dict):
-                            merged_recipes[group_key].update(group_data)
-                if merged_recipes:
-                    ia_data["recipes"] = merged_recipes
-
-            # 准备输出路径
-            # CraftEngine 输出结构: resources/<namespace>/...
-            # 使用配置中的命名空间或默认值
-            original_namespace = ia_data.get("info", {}).get("namespace", "converted")
-            namespace = original_namespace
-            
-            # 检查用户是否指定了命名空间
-            user_namespace = request.form.get('namespace')
-            if user_namespace:
-                # 验证命名空间规则: 0-9, a-z, _, -, .
-                if not re.match(r'^[0-9a-z_.-]+$', user_namespace):
-                    return jsonify({'error': '命名空间包含非法字符。仅允许小写字母、数字、下划线、连字符和英文句号。'}), 400
-                namespace = user_namespace
-
-            # 特殊处理：如果资源包结构是非标准的（直接包含 models/textures），则重组为标准结构
-            # 这通常发生在 ia_resourcepack_path 指向了包含 models/textures 的根目录，但缺少 assets/<namespace> 包装的情况
-            if ia_resourcepack_path and os.path.exists(ia_resourcepack_path):
-                # 检查标准结构是否存在
-                assets_path = os.path.join(ia_resourcepack_path, "assets")
-                if not os.path.exists(assets_path):
-                    # 检查是否有models 或 textures
-                    has_models = os.path.exists(os.path.join(ia_resourcepack_path, "models"))
-                    has_textures = os.path.exists(os.path.join(ia_resourcepack_path, "textures"))
-                    
-                    if has_models or has_textures:
-                        print(f"检测到非标准资源包结构，正在重组为 assets/{namespace}/...")
-                        # 创建一个新的临时目录作为资源包根目录，以避免污染原始提取目录或处理路径冲突
-                        restructured_root = os.path.join(session_upload_dir, "restructured_rp")
-                        target_ns_dir = os.path.join(restructured_root, "assets", namespace)
-                        os.makedirs(target_ns_dir, exist_ok=True)
-                        
-                        # 移动文件夹
-                        for folder_name in ["models", "textures", "sounds"]:
-                            src_folder = os.path.join(ia_resourcepack_path, folder_name)
-                            if os.path.exists(src_folder):
-                                dst_folder = os.path.join(target_ns_dir, folder_name)
-                                # 移动文件夹
-                                shutil.move(src_folder, dst_folder)
-                        
-                        # 更新资源包路径指向新的标准结构根目录
-                        ia_resourcepack_path = restructured_root
-                else:
-                    # 标准结构：如果命名空间改变，尝试重命名文件夹以匹配新的命名空间
-                    if namespace != original_namespace:
-                        src_ns_path = os.path.join(assets_path, original_namespace)
-                        dst_ns_path = os.path.join(assets_path, namespace)
-                        if os.path.exists(src_ns_path) and not os.path.exists(dst_ns_path):
-                            try:
-                                print(f"Renaming resource pack namespace: {original_namespace} -> {namespace}")
-                                shutil.move(src_ns_path, dst_ns_path)
-                            except Exception as e:
-                                print(f"Warning: Failed to rename namespace folder: {e}")
-            
-            ce_output_base = os.path.join(session_output_dir, "CraftEngine", "resources", namespace)
-            ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
-            ce_res_dir = os.path.join(ce_output_base, "resourcepack")
-            
-            # 如果找到 resourcepack 则设置资源路径
-            if ia_resourcepack_path:
-                converter.set_resource_paths(ia_resourcepack_path, ce_res_dir)
-
-            converter.convert(ia_data, namespace=namespace)
-            
-            converter.save_config(ce_config_dir)
-
-            # 5. 压缩结果
-            # 获取原始文件名 
-            original_filename = "converted"
-            try:
-                for f in os.listdir(session_upload_dir):
-                    if f.endswith(".zip"):
-                        original_filename = f[:-4] # 移除 .zip
-                        break
-            except:
-                pass
-
-            output_filename = f"{original_filename} [{target_format} by MCC].zip"
-            # 简单的文件名清理，防止非法字符
-            output_filename = re.sub(r'[\\/*?:"<>|]', "", output_filename)
-            
-            output_zip_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
-            # 我们希望压缩包解压后直接是 resources 文件夹，或者 CraftEngine 文件夹
-
-            shutil.make_archive(output_zip_path[:-4], 'zip', session_output_dir, "CraftEngine")
-
-            # 清理会话文件 
-            # shutil.rmtree(session_upload_dir)
-            # shutil.rmtree(session_output_dir)
-
-            return jsonify({
-                'status': 'success',
-                'download_url': f'/api/download/{output_filename}'
-            })
+            if source_format == "Nexo":
+                return _convert_nexo_to_ce(extract_dir, session_output_dir, session_upload_dir, target_format)
+            else:
+                # 默认为 ItemsAdder 或显式指定
+                return _convert_ia_to_ce(extract_dir, session_output_dir, session_upload_dir, target_format)
+        
+        return jsonify({'error': f'不支持的目标格式: {target_format}'}), 400
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+def _convert_nexo_to_ce(extract_dir, session_output_dir, session_upload_dir, target_format):
+    # 1. 扫描 Nexo 配置和资源
+    nexo_items_configs = []
+    nexo_resourcepack_path = None
+    
+    # 尝试找到 Nexo 根目录
+    scan_root = extract_dir
+    for root, dirs, files in os.walk(extract_dir):
+        if "Nexo" in dirs:
+            scan_root = os.path.join(root, "Nexo")
+            break
+        elif "nexo" in dirs:
+             scan_root = os.path.join(root, "nexo")
+             break
+
+    # 扫描配置和资源
+    for root, dirs, files in os.walk(scan_root):
+        # 资源包检测
+        if "pack" in dirs and nexo_resourcepack_path is None:
+             nexo_resourcepack_path = os.path.join(root, "pack")
+        elif "assets" in dirs and nexo_resourcepack_path is None:
+             nexo_resourcepack_path = root
+             
+        # 配置文件检测
+        for f in files:
+            if f.endswith((".yml", ".yaml")):
+                full_path = os.path.join(root, f)
+                # 简单过滤，避免加载非配置
+                if "config.yml" in f: continue
+                nexo_items_configs.append(full_path)
+
+    if not nexo_items_configs:
+         return jsonify({'error': '未能找到 Nexo 配置文件'}), 400
+
+    # 2. 运行转换
+    # 准备命名空间
+    user_namespace = request.form.get('namespace')
+    
+    if user_namespace and re.match(r'^[0-9a-z_.-]+$', user_namespace):
+        # 用户指定了命名空间，合并所有配置
+        converter = NexoConverter()
+        merged_data = {}
+        for config_path in nexo_items_configs:
+            data = safe_load_yaml(config_path)
+            if isinstance(data, dict):
+                 merged_data.update(data)
+        
+        namespace = user_namespace
+        ce_output_base = os.path.join(session_output_dir, "CraftEngine", "resources", namespace)
+        ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
+        ce_res_dir = os.path.join(ce_output_base, "resourcepack")
+
+        if nexo_resourcepack_path:
+            converter.set_resource_paths(nexo_resourcepack_path, ce_res_dir)
+
+        converter.convert(merged_data, namespace=namespace)
+        converter.save_config(ce_config_dir)
+        
+    else:
+        # 用户未指定命名空间，使用文件名作为命名空间
+        for config_path in nexo_items_configs:
+            data = safe_load_yaml(config_path)
+            if not isinstance(data, dict):
+                continue
+            
+            # 从文件名获取命名空间
+            filename = os.path.basename(config_path)
+            namespace = os.path.splitext(filename)[0]
+            # 简单的命名空间清理
+            namespace = re.sub(r'[^0-9a-z_.-]', '_', namespace.lower())
+            
+            # 每个文件独立转换
+            converter = NexoConverter()
+            
+            ce_output_base = os.path.join(session_output_dir, "CraftEngine", "resources", namespace)
+            ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
+            ce_res_dir = os.path.join(ce_output_base, "resourcepack")
+
+            if nexo_resourcepack_path:
+                converter.set_resource_paths(nexo_resourcepack_path, ce_res_dir)
+            
+            converter.convert(data, namespace=namespace)
+            converter.save_config(ce_config_dir)
+
+    return _package_and_respond(session_output_dir, session_upload_dir, target_format)
+
+def _convert_ia_to_ce(extract_dir, session_output_dir, session_upload_dir, target_format):
+    # 3. 定位配置和资源 (ItemsAdder -> CraftEngine 逻辑)
+    # 改进逻辑: 扫描所有 YAML 文件并根据内容进行分类
+    ia_items_configs = []
+    ia_categories_configs = []
+    ia_recipes_configs = []
+    ia_resourcepack_path = None
+
+    # 0. 确定扫描根目录
+    scan_root = extract_dir
+    found_ia_dir = False
+    for root, dirs, files in os.walk(extract_dir):
+        for d in dirs:
+            if d.lower() == "itemsadder":
+                scan_root = os.path.join(root, d)
+                found_ia_dir = True
+                break
+        if found_ia_dir:
+            break
+    
+    if found_ia_dir:
+            print(f"Detected ItemsAdder root at: {scan_root}")
+
+    # 第一遍扫描：查找配置文件和标准资源包结构
+    for root, dirs, files in os.walk(scan_root):
+        # --- 资源包检测 ---
+        # 优先级 1: 显式的 "resourcepack" 目录
+        if "resourcepack" in dirs and ia_resourcepack_path is None:
+            ia_resourcepack_path = os.path.join(root, "resourcepack")
+        
+        # 优先级 2: 直接包含 assets 的目录
+        if "assets" in dirs and ia_resourcepack_path is None:
+            ia_resourcepack_path = root
+
+        # 优先级 3: 直接包含 models 和 textures 的目录 (非标准结构)
+        if "models" in dirs and "textures" in dirs and ia_resourcepack_path is None:
+            ia_resourcepack_path = root
+
+        # --- 配置文件检测 ---
+        for f in files:
+            if f.endswith(".yml") or f.endswith(".yaml"):
+                full_path = os.path.join(root, f)
+                try:
+                    print(f"Scanning: {full_path}")
+                    data = safe_load_yaml(full_path)
+                    if not data:
+                        continue
+                    
+                    # 检查关键签名
+                    if "items" in data or "equipments" in data or "armors_rendering" in data:
+                        ia_items_configs.append(full_path)
+                    if "categories" in data:
+                        ia_categories_configs.append(full_path)
+                    if "recipes" in data:
+                        ia_recipes_configs.append(full_path)
+                except Exception as e:
+                    print(f"Error loading {full_path}: {e}")
+                    continue
+
+    # 如果仍未找到资源包，尝试寻找 textures/models 的父级 (处理非标准结构)
+    if ia_resourcepack_path is None:
+        # 如果有配置文件，默认为提取根目录
+        if ia_items_configs:
+            ia_resourcepack_path = extract_dir
+
+    if not ia_items_configs:
+            return jsonify({'error': '未能找到包含物品定义的配置文件 (items/equipments)'}), 400
+
+    # 4. 运行转换
+    converter = IAConverter()
+    
+    # 加载并合并所有物品配置
+    merged_items_data = {"items": {}, "equipments": {}, "armors_rendering": {}, "templates": {}, "recipes": {}, "info": {}}
+    
+    for config_path in ia_items_configs:
+        data = converter.load_config(config_path)
+        if not data: continue
+        
+        # 合并逻辑
+        if "info" in data and not merged_items_data["info"]:
+            merged_items_data["info"] = data["info"] # 使用找到的第一个 info
+        
+        if "items" in data:
+            merged_items_data.setdefault("items", {}).update(data["items"])
+            
+        if "equipments" in data:
+            merged_items_data.setdefault("equipments", {}).update(data["equipments"])
+            
+        if "armors_rendering" in data:
+            merged_items_data.setdefault("armors_rendering", {}).update(data["armors_rendering"])
+            
+        if "templates" in data:
+            merged_items_data.setdefault("templates", {}).update(data["templates"])
+
+    ia_data = merged_items_data
+    
+    # 如果找到则加载分类
+    if ia_categories_configs:
+        merged_categories = {}
+        for cat_config in ia_categories_configs:
+            data = converter.load_config(cat_config)
+            if data and "categories" in data:
+                merged_categories.update(data["categories"])
+        
+        if merged_categories:
+            ia_data["categories"] = merged_categories
+
+    if ia_recipes_configs:
+        merged_recipes = {}
+        for recipe_config in ia_recipes_configs:
+            data = converter.load_config(recipe_config)
+            if not data:
+                continue
+            if "info" in data and not ia_data.get("info"):
+                ia_data["info"] = data["info"]
+            recipes_block = data.get("recipes")
+            if not isinstance(recipes_block, dict):
+                continue
+            for group_key, group_data in recipes_block.items():
+                if group_key not in merged_recipes:
+                    merged_recipes[group_key] = {}
+                if isinstance(group_data, dict):
+                    merged_recipes[group_key].update(group_data)
+        if merged_recipes:
+            ia_data["recipes"] = merged_recipes
+
+    # 准备输出路径
+    # CraftEngine 输出结构: resources/<namespace>/...
+    # 使用配置中的命名空间或默认值
+    original_namespace = ia_data.get("info", {}).get("namespace", "converted")
+    namespace = original_namespace
+    
+    # 检查用户是否指定了命名空间
+    user_namespace = request.form.get('namespace')
+    if user_namespace:
+        # 验证命名空间规则: 0-9, a-z, _, -, .
+        if not re.match(r'^[0-9a-z_.-]+$', user_namespace):
+            return jsonify({'error': '命名空间包含非法字符。仅允许小写字母、数字、下划线、连字符和英文句号。'}), 400
+        namespace = user_namespace
+
+    # 特殊处理：如果资源包结构是非标准的（直接包含 models/textures），则重组为标准结构
+    # 这通常发生在 ia_resourcepack_path 指向了包含 models/textures 的根目录，但缺少 assets/<namespace> 包装的情况
+    if ia_resourcepack_path and os.path.exists(ia_resourcepack_path):
+        # 检查标准结构是否存在
+        assets_path = os.path.join(ia_resourcepack_path, "assets")
+        if not os.path.exists(assets_path):
+            # 检查是否有models 或 textures
+            has_models = os.path.exists(os.path.join(ia_resourcepack_path, "models"))
+            has_textures = os.path.exists(os.path.join(ia_resourcepack_path, "textures"))
+            
+            if has_models or has_textures:
+                print(f"检测到非标准资源包结构，正在重组为 assets/{namespace}/...")
+                # 创建一个新的临时目录作为资源包根目录，以避免污染原始提取目录或处理路径冲突
+                restructured_root = os.path.join(session_upload_dir, "restructured_rp")
+                target_ns_dir = os.path.join(restructured_root, "assets", namespace)
+                os.makedirs(target_ns_dir, exist_ok=True)
+                
+                # 移动文件夹
+                for folder_name in ["models", "textures", "sounds"]:
+                    src_folder = os.path.join(ia_resourcepack_path, folder_name)
+                    if os.path.exists(src_folder):
+                        dst_folder = os.path.join(target_ns_dir, folder_name)
+                        # 移动文件夹
+                        shutil.move(src_folder, dst_folder)
+                
+                # 更新资源包路径指向新的标准结构根目录
+                ia_resourcepack_path = restructured_root
+        else:
+            # 标准结构：如果命名空间改变，尝试重命名文件夹以匹配新的命名空间
+            if namespace != original_namespace:
+                src_ns_path = os.path.join(assets_path, original_namespace)
+                dst_ns_path = os.path.join(assets_path, namespace)
+                if os.path.exists(src_ns_path) and not os.path.exists(dst_ns_path):
+                    try:
+                        print(f"Renaming resource pack namespace: {original_namespace} -> {namespace}")
+                        shutil.move(src_ns_path, dst_ns_path)
+                    except Exception as e:
+                        print(f"Warning: Failed to rename namespace folder: {e}")
+    
+    ce_output_base = os.path.join(session_output_dir, "CraftEngine", "resources", namespace)
+    ce_config_dir = os.path.join(ce_output_base, "configuration", "items", namespace)
+    ce_res_dir = os.path.join(ce_output_base, "resourcepack")
+    
+    # 如果找到 resourcepack 则设置资源路径
+    if ia_resourcepack_path:
+        converter.set_resource_paths(ia_resourcepack_path, ce_res_dir)
+
+    converter.convert(ia_data, namespace=namespace)
+    
+    converter.save_config(ce_config_dir)
+
+    return _package_and_respond(session_output_dir, session_upload_dir, target_format)
+
+def _package_and_respond(session_output_dir, session_upload_dir, target_format):
+    # 5. 压缩结果
+    # 获取原始文件名 
+    original_filename = "converted"
+    try:
+        for f in os.listdir(session_upload_dir):
+            if f.endswith(".zip"):
+                original_filename = f[:-4] # 移除 .zip
+                break
+    except:
+        pass
+
+    output_filename = f"{original_filename} [{target_format} by MCC].zip"
+    # 简单的文件名清理，防止非法字符
+    output_filename = re.sub(r'[\\/*?:"<>|]', "", output_filename)
+    
+    output_zip_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
+    # 我们希望压缩包解压后直接是 resources 文件夹，或者 CraftEngine 文件夹
+
+    shutil.make_archive(output_zip_path[:-4], 'zip', session_output_dir, "CraftEngine")
+
+    # 清理会话文件 
+    # shutil.rmtree(session_upload_dir)
+    # shutil.rmtree(session_output_dir)
+
+    return jsonify({
+        'status': 'success',
+        'download_url': f'/api/download/{output_filename}'
+    })
 
 @app.route('/api/download/<filename>')
 def download_file(filename):

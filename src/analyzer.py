@@ -138,20 +138,18 @@ class PackageAnalyzer:
     def _is_nexo_config(self, data):
         # 检测 Nexo 配置
         # Nexo 类似于 IA，但有一些特定字段
-        # 通常包含 'item_id' 或 'Mechanics' 或 'pack'
+        # 通常包含 'itemname', 'Pack', 'Mechanics', 'Components'
         
-        # 1. 检查是否有 item_id (Nexo 常用)
-        if "item_id" in str(data):
-            return True
-            
-        # 2. 检查是否有 Nexo 特有的 mechanic
-        # 这是一个宽泛的检查，实际应该更具体
         if isinstance(data, dict):
              for key, value in data.items():
                  if isinstance(value, dict):
                      if "Mechanics" in value:
                          return True
-                     if "Pack" in value and "generate" in value["Pack"]:
+                     if "Pack" in value:
+                         return True
+                     if "Components" in value:
+                         return True
+                     if "itemname" in value:
                          return True
                          
         return False

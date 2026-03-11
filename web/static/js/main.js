@@ -86,6 +86,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const formData = new FormData();
         formData.append('session_id', sessionId);
         
+        const sourceInput = document.getElementById('selected-source');
+        if (sourceInput && sourceInput.value) {
+            formData.append('source_format', sourceInput.value);
+        }
+
         const targetInput = document.getElementById('selected-target');
         if (targetInput && targetInput.value) {
             formData.append('target_format', targetInput.value);
