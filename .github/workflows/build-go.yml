@@ -24,11 +24,14 @@ jobs:
     - name: Download dependencies
       run: go mod download
 
+    - name: Prepare module metadata
+      run: go mod tidy
+
     - name: Build all packages
-      run: go build ./...
+      run: go build -mod=mod ./...
 
     - name: Build application binary
-      run: go build -o dist/mcc ./cmd/mcc
+      run: go build -mod=mod -o dist/mcc ./cmd/mcc
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
