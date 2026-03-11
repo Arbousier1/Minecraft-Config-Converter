@@ -165,7 +165,7 @@ class NexoConverter(BaseConverter):
                 ce_item["data"]["lore"] = ce_lore
         
         if "model" in data:
-             ce_item["data"]["custom-model-data"] = data.get("model")
+             ce_item["custom-model-data"] = data.get("model")
 
         pack = data.get("Pack", {})
         mechanics = data.get("Mechanics", {})

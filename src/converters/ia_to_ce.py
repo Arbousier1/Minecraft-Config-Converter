@@ -295,7 +295,7 @@ class IAConverter(BaseConverter):
                 ce_item["data"]["lore"] = ce_lore
         
         if "model_id" in resource:
-            ce_item["data"]["custom-model-data"] = resource["model_id"]
+            ce_item["custom-model-data"] = resource["model_id"]
 
         # 根据材质或行为处理特定类型
         behaviours = data.get("behaviours", {})
