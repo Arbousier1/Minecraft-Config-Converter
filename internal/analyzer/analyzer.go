@@ -8,6 +8,13 @@ import (
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/yamlx"
 )
 
+const (
+	contentTypeEquipment = "装备"
+	contentTypeDecor     = "装饰"
+	contentTypeTexture   = "贴图"
+	contentTypeModel     = "模型"
+)
+
 type Completeness struct {
 	ItemsConfig      bool `json:"items_config"`
 	CategoriesConfig bool `json:"categories_config"`
@@ -73,13 +80,13 @@ func (a *Analyzer) Analyze() (Report, error) {
 
 		ext := strings.ToLower(filepath.Ext(info.Name()))
 		if ext == ".png" && strings.Contains(pathLower, "textures") {
-			a.addContent("贴图")
+			a.addContent(contentTypeTexture)
 			a.report.Details.TextureCount++
 			a.report.Completeness.ResourceFiles = true
 		}
 
 		if ext == ".json" && strings.Contains(pathLower, "models") {
-			a.addContent("模型")
+			a.addContent(contentTypeModel)
 			a.report.Details.ModelCount++
 			a.report.Completeness.ResourceFiles = true
 		}
@@ -95,7 +102,12 @@ func (a *Analyzer) Analyze() (Report, error) {
 	}
 
 	a.report.Formats = setToSortedSlice(a.formats, []string{"ItemsAdder", "CraftEngine", "Nexo"})
-	a.report.ContentTypes = setToSortedSlice(a.content, []string{"装备", "装饰", "贴图", "模型"})
+	a.report.ContentTypes = setToSortedSlice(a.content, []string{
+		contentTypeEquipment,
+		contentTypeDecor,
+		contentTypeTexture,
+		contentTypeModel,
+	})
 	return a.report, nil
 }
 
@@ -118,7 +130,7 @@ func (a *Analyzer) analyzeYAML(path string) {
 		a.addFormat("ItemsAdder")
 		if items, ok := asMap(data["items"]); ok {
 			a.report.Completeness.ItemsConfig = true
-			a.addContent("装备")
+			a.addContent(contentTypeEquipment)
 			a.report.Details.ItemCount += len(items)
 			for _, rawItem := range items {
 				item, ok := asMap(rawItem)
@@ -130,7 +142,7 @@ func (a *Analyzer) analyzeYAML(path string) {
 					continue
 				}
 				if _, hasFurniture := behaviours["furniture"]; hasFurniture {
-					a.addContent("装饰")
+					a.addContent(contentTypeDecor)
 				}
 			}
 		}

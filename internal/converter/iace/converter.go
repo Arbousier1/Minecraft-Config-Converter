@@ -58,6 +58,9 @@ type Converter struct {
 	generatedModels    map[string]map[string]any
 	armorHumanoidKeys  map[string]struct{}
 	armorLeggingsKeys  map[string]struct{}
+	modelYCache        map[string]float64
+	modelVariantCache  map[string]string
+	modelFileCache     map[string]bool
 }
 
 type ceConfig struct {
@@ -137,6 +140,9 @@ func New(namespace string) *Converter {
 		generatedModels:   map[string]map[string]any{},
 		armorHumanoidKeys: map[string]struct{}{},
 		armorLeggingsKeys: map[string]struct{}{},
+		modelYCache:       map[string]float64{},
+		modelVariantCache: map[string]string{},
+		modelFileCache:    map[string]bool{},
 	}
 }
 
@@ -402,7 +408,7 @@ func (c *Converter) convertItem(key string, data map[string]any) {
 	ceItem := map[string]any{
 		"material": material,
 		"data": map[string]any{
-			"item-name": formatDisplayName(displayName, c.namespace),
+			"item-name": formatDisplayNameCompat(displayName, c.namespace),
 		},
 	}
 	dataSection := ceItem["data"].(map[string]any)
@@ -465,12 +471,18 @@ func (c *Converter) convertCategory(key string, data map[string]any) {
 
 	icon := "minecraft:stone"
 	if len(ceItems) > 0 {
-		icon = ceItems[0]
-	} else if rawIcon := stringValue(data["icon"]); rawIcon != "" {
-		icon = c.namespacedPath(rawIcon)
+		potentialIcon := ceItems[0]
+		if _, exists := c.config.Items[potentialIcon]; exists {
+			icon = potentialIcon
+		}
+	}
+	if icon == "minecraft:stone" {
+		if rawIcon := stringValue(data["icon"]); rawIcon != "" {
+			icon = c.namespacedPath(rawIcon)
+		}
 	}
 
-	name := stripMinecraftColorCodes(stringValue(data["name"]))
+	name := stripMinecraftColorCodesCompat(stringValue(data["name"]))
 	if name == "" {
 		name = key
 	}
@@ -663,6 +675,14 @@ func buildArchiveName(original, target string) string {
 }
 
 func formatDisplayName(name, namespace string) string {
+	defaultColor := "<white>"
+	if strings.Contains(namespace, "elitecreatures") {
+		defaultColor = "<#FFCF20>"
+	}
+	return "<!i>" + defaultColor + strings.ReplaceAll(name, "&", "§")
+}
+
+func formatDisplayNameCompat(name, namespace string) string {
 	defaultColor := "<white>"
 	if strings.Contains(namespace, "elitecreatures") {
 		defaultColor = "<#FFCF20>"
@@ -898,7 +918,7 @@ func isArmorMaterial(material string) bool {
 }
 
 func hasEquipmentSetting(item map[string]any) bool {
-	settings, ok := asStringMap(item["data"])
+	settings, ok := asStringMap(item["settings"])
 	if !ok {
 		return false
 	}
@@ -912,6 +932,17 @@ func stripMinecraftColorCodes(value string) string {
 		"&a", "", "&b", "", "&c", "", "&d", "", "&e", "", "&f", "", "&k", "", "&l", "", "&m", "", "&n", "", "&o", "", "&r", "",
 		"§0", "", "§1", "", "§2", "", "§3", "", "§4", "", "§5", "", "§6", "", "§7", "", "§8", "", "§9", "",
 		"§a", "", "§b", "", "§c", "", "§d", "", "§e", "", "§f", "", "§k", "", "§l", "", "§m", "", "§n", "", "§o", "", "§r", "",
+	)
+	return replacer.Replace(value)
+}
+
+func stripMinecraftColorCodesCompat(value string) string {
+	replacer := strings.NewReplacer(
+		"&0", "", "&1", "", "&2", "", "&3", "", "&4", "", "&5", "", "&6", "", "&7", "", "&8", "", "&9", "",
+		"&a", "", "&b", "", "&c", "", "&d", "", "&e", "", "&f", "", "&k", "", "&l", "", "&m", "", "&n", "", "&o", "", "&r", "",
+		"§0", "", "§1", "", "§2", "", "§3", "", "§4", "", "§5", "", "§6", "", "§7", "", "§8", "", "§9", "",
+		"§a", "", "§b", "", "§c", "", "§d", "", "§e", "", "§f", "", "§k", "", "§l", "", "§m", "", "§n", "", "§o", "", "§r", "",
+		"§A", "", "§B", "", "§C", "", "§D", "", "§E", "", "§F", "", "§K", "", "§L", "", "§M", "", "§N", "", "§O", "", "§R", "",
 	)
 	return replacer.Replace(value)
 }

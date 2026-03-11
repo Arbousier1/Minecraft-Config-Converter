@@ -135,6 +135,9 @@ func (c *Converter) calculateModelYTranslation(modelPath string) float64 {
 	if modelPath == "" || c.resourcepackPath == "" {
 		return 0.5
 	}
+	if cached, ok := c.modelYCache[modelPath]; ok {
+		return cached
+	}
 
 	targetNamespace := c.namespace
 	cleanPath := modelPath
@@ -158,6 +161,7 @@ func (c *Converter) calculateModelYTranslation(modelPath string) float64 {
 		}
 		elements, ok := payload["elements"].([]any)
 		if !ok {
+			c.modelYCache[modelPath] = 0.5
 			return 0.5
 		}
 		for _, rawElement := range elements {
@@ -166,12 +170,15 @@ func (c *Converter) calculateModelYTranslation(modelPath string) float64 {
 				continue
 			}
 			if axisBelowThreshold(element["from"], -7.0) || axisBelowThreshold(element["to"], -7.0) {
+				c.modelYCache[modelPath] = 1.5
 				return 1.5
 			}
 		}
+		c.modelYCache[modelPath] = 0.5
 		return 0.5
 	}
 
+	c.modelYCache[modelPath] = 0.5
 	return 0.5
 }
 
@@ -366,6 +373,10 @@ func (c *Converter) findModelPathVariant(basePath string, variants []string) str
 	if c.resourcepackPath == "" {
 		return basePath + variants[0]
 	}
+	cacheKey := basePath + "\x00" + strings.Join(variants, "\x00")
+	if cached, ok := c.modelVariantCache[cacheKey]; ok {
+		return cached
+	}
 
 	ns := c.namespace
 	relPath := basePath
@@ -382,17 +393,20 @@ func (c *Converter) findModelPathVariant(basePath string, variants []string) str
 			filepath.Join(c.resourcepackPath, ns, "models", candidate+".json"),
 		}
 		for _, fullPath := range fullPaths {
-			if _, err := os.Stat(fullPath); err == nil {
+			if c.modelFileExists(fullPath) {
 				if strings.Contains(basePath, ":") {
-					return ns + ":" + candidate
+					c.modelVariantCache[cacheKey] = ns + ":" + candidate
+					return c.modelVariantCache[cacheKey]
 				}
-				return candidate
+				c.modelVariantCache[cacheKey] = candidate
+				return c.modelVariantCache[cacheKey]
 			}
 		}
 	}
 
 	baseClean := strings.TrimSuffix(basePath, ".json")
-	return baseClean + variants[0]
+	c.modelVariantCache[cacheKey] = baseClean + variants[0]
+	return c.modelVariantCache[cacheKey]
 }
 
 func (c *Converter) handleComplexItem(ceItem map[string]any, key string, data map[string]any, material string) {
@@ -576,16 +590,21 @@ func (c *Converter) handleGenericModel(ceItem map[string]any, resource map[strin
 		return
 	}
 
-	textures := normalizeTextures(resource)
+	textures := rawTextures(resource)
 	if len(textures) == 0 {
 		return
 	}
+	ceItem["textures"] = c.normalizeTexturesForItem(textures, ceItem)
+}
 
-	namespaced := make([]string, 0, len(textures))
-	for _, texture := range textures {
-		namespaced = append(namespaced, c.namespace+":"+texture)
+func (c *Converter) modelFileExists(path string) bool {
+	if exists, ok := c.modelFileCache[path]; ok {
+		return exists
 	}
-	ceItem["textures"] = namespaced
+	_, err := os.Stat(path)
+	exists := err == nil
+	c.modelFileCache[path] = exists
+	return exists
 }
 
 func (c *Converter) registerArmorTexture(raw string, leggings bool) {
