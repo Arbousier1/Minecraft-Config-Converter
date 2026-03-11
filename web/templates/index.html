@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MCC - Minecraft 配置转换器</title>
+    <title>MCC - Minecraft Config Converter</title>
     <link rel="icon" type="image/png" href="/static/images/favicon.png">
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
@@ -17,14 +17,14 @@
     <div class="container">
         <header>
             <h1>Minecraft 配置转换器</h1>
-            <p>轻松将 ItemsAdder 配置转换为 CraftEngine 格式</p>
+            <p>将资源包和配置转换到 CraftEngine 格式</p>
         </header>
 
         <main>
             <div class="upload-section" id="drop-zone">
-                <div class="icon">📂</div>
-                <h2>上传 ItemsAdder 压缩包</h2>
-                <p>拖拽 .zip 文件到此处 或 点击浏览</p>
+                <div class="icon">📨</div>
+                <h2>上传压缩包</h2>
+                <p>拖拽 `.zip` 文件到这里，或点击按钮选择文件</p>
                 <input type="file" id="file-input" accept=".zip" hidden>
                 <button class="btn-primary" onclick="document.getElementById('file-input').click()">选择文件</button>
             </div>
@@ -37,15 +37,15 @@
             </div>
 
             <div class="result-section" id="result-section" style="display: none;">
-                <div class="success-icon">✅</div>
-                <h3>转换完成！</h3>
-                <p>您的 CraftEngine 配置已准备就绪。</p>
+                <div class="success-icon">✓</div>
+                <h3>转换完成</h3>
+                <p>结果已生成，可以直接下载。</p>
                 <a id="download-link" href="#" class="btn-success">下载结果</a>
                 <button class="btn-secondary" onclick="location.reload()">转换另一个</button>
             </div>
-            
+
             <div class="error-section" id="error-section" style="display: none;">
-                <div class="error-icon">❌</div>
+                <div class="error-icon">✕</div>
                 <h3>发生错误</h3>
                 <p id="error-message">未知错误。</p>
                 <button class="btn-secondary" onclick="location.reload()">重试</button>
@@ -54,10 +54,7 @@
 
         <footer>
             <div class="footer-content">
-                <a href="https://qm.qq.com/q/za88M20kwg" target="_blank" class="qq-group-link" title="点击加入 QQ 群">
-                    <span class="icon-qq"><img src="/static/images/qq-icon.png" alt="QQ 图标" width="18" height="18"></span> 交流群: 991527736
-                </a>
-                <p>&copy; 2026 MCC Tool. 保留所有权利。</p>
+                <p>&copy; 2026 MCC Tool</p>
             </div>
         </footer>
     </div>
@@ -65,12 +62,12 @@
     <script src="/static/js/main.js"></script>
     <script>
         function shutdownServer() {
-            if(confirm("确定要退出程序吗？")) {
+            if (confirm("确定要退出程序吗？")) {
                 fetch('/api/shutdown', { method: 'POST' })
-                .then(() => {
-                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;color:white;background:#202225;'><h1>程序已关闭，您可以关闭此标签页了。</h1></div>";
-                })
-                .catch(err => console.error(err));
+                    .then(() => {
+                        document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;color:white;background:#202225;'><h1>程序已关闭，可以直接关闭此页面。</h1></div>";
+                    })
+                    .catch((err) => console.error(err));
             }
         }
     </script>

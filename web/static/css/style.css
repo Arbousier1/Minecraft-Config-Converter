@@ -478,31 +478,6 @@ footer {
     gap: 0.5rem;
 }
 
-.qq-group-link {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #888;
-    text-decoration: none;
-    font-size: 0.9rem;
-    transition: all 0.2s ease;
-    padding: 6px 12px;
-    border-radius: 20px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.qq-group-link:hover {
-    color: var(--primary-color);
-    border-color: var(--primary-color);
-    background-color: rgba(0, 112, 243, 0.1);
-    transform: translateY(-2px);
-}
-
-.icon-qq {
-    font-size: 1.1rem;
-}
-
 /* 
 footer {
     ... grid layout code commented out as it's not currently used
