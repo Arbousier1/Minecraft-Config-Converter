@@ -88,6 +88,10 @@ func (s *Server) SetHTTPServer(httpSrv *http.Server) {
 	})
 }
 
+func (s *Server) Shutdown() {
+	s.shutdown(false)
+}
+
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/", s.handleIndex)
 	s.mux.HandleFunc("/api/analyze", s.handleAnalyze)

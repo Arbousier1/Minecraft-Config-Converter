@@ -70,6 +70,20 @@
                     .catch((err) => console.error(err));
             }
         }
+        shutdownServer = function () {
+            if (!confirm("Exit MCC?")) {
+                return;
+            }
+            if (typeof window.quitApp === 'function') {
+                window.quitApp().catch((err) => console.error(err));
+                return;
+            }
+            fetch('/api/shutdown', { method: 'POST' })
+                .then(() => {
+                    document.body.innerHTML = "<div style='display:flex;justify-content:center;align-items:center;height:100vh;color:white;background:#202225;'><h1>MCC has been closed. You can close this window now.</h1></div>";
+                })
+                .catch((err) => console.error(err));
+        };
     </script>
 </body>
 </html>
