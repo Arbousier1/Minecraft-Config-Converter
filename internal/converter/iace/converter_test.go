@@ -24,6 +24,27 @@ func TestConvertItemPreservesPythonDisplayFormatting(t *testing.T) {
 	}
 }
 
+func TestConvertItemWritesCustomModelDataAtTopLevel(t *testing.T) {
+	converter := New("demo")
+
+	converter.convertItem("sword", map[string]any{
+		"resource": map[string]any{
+			"material": "STONE",
+			"model_id": 1234,
+		},
+	})
+
+	item := converter.config.Items["demo:sword"]
+	if got, want := item["custom-model-data"], 1234; got != want {
+		t.Fatalf("custom-model-data mismatch: got %v want %v", got, want)
+	}
+
+	data := item["data"].(map[string]any)
+	if _, exists := data["custom-model-data"]; exists {
+		t.Fatalf("custom-model-data should not be nested in data: %#v", data)
+	}
+}
+
 func TestConvertCategoryFallsBackToConfiguredIcon(t *testing.T) {
 	converter := New("demo")
 	converter.config.Items["demo:known"] = map[string]any{"material": "STONE"}

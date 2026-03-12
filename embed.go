@@ -2,7 +2,7 @@ package mccassets
 
 import "embed"
 
-// Files embeds the existing frontend so the Go server can serve a single binary.
+// Files embeds the built frontend and static image assets.
 //
-//go:embed web/templates/index.html web/static
+//go:embed web/dist web/static/images
 var Files embed.FS

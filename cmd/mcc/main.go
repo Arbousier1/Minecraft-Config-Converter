@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"os/exec"
@@ -29,10 +30,24 @@ func main() {
 	}
 	app.SetHTTPServer(httpSrv)
 
+	serveErrCh := make(chan error, 1)
+	go func() {
+		err := httpSrv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErrCh <- err
+			return
+		}
+		serveErrCh <- nil
+	}()
+
+	if err := waitForServerReady(appURL, serveErrCh, 5*time.Second); err != nil {
+		log.Fatalf("start server: %v", err)
+	}
+
 	go openBrowser(appURL)
 	log.Printf("starting MCC on %s", appURL)
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("listen: %v", err)
+	if err := <-serveErrCh; err != nil {
+		log.Fatalf("server exited: %v", err)
 	}
 }
 
@@ -49,4 +64,31 @@ func openBrowser(url string) {
 		cmd = exec.Command("xdg-open", url)
 	}
 	_ = cmd.Start()
+}
+
+func waitForServerReady(url string, serveErrCh <-chan error, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-serveErrCh:
+			if err != nil {
+				return err
+			}
+			return nil
+		default:
+		}
+
+		resp, err := client.Get(url)
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode >= 200 && resp.StatusCode < 500 {
+				return nil
+			}
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+	return errors.New("server did not become ready in time")
 }

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -93,33 +94,49 @@ func (s *Server) Shutdown() {
 }
 
 func (s *Server) registerRoutes() {
-	s.mux.HandleFunc("/", s.handleIndex)
 	s.mux.HandleFunc("/api/analyze", s.handleAnalyze)
 	s.mux.HandleFunc("/api/convert", s.handleConvert)
 	s.mux.HandleFunc("/api/download/", s.handleDownload)
 	s.mux.HandleFunc("/api/heartbeat", s.handleHeartbeat)
 	s.mux.HandleFunc("/api/shutdown", s.handleShutdown)
 
-	staticFS, err := fs.Sub(mccassets.Files, "web/static")
+	assetsFS, err := fs.Sub(mccassets.Files, "web/dist/assets")
 	if err != nil {
 		panic(err)
 	}
-	s.mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
+	s.mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assetsFS))))
+
+	imageFS, err := fs.Sub(mccassets.Files, "web/static/images")
+	if err != nil {
+		panic(err)
+	}
+	s.mux.Handle("/static/images/", http.StripPrefix("/static/images/", http.FileServer(http.FS(imageFS))))
+
+	s.mux.HandleFunc("/", s.handleFrontend)
 }
 
-func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func (s *Server) handleFrontend(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
+	if path == "/" {
+		path = "/index.html"
 	}
 
-	content, err := mccassets.Files.ReadFile("web/templates/index.html")
+	filePath := "web/dist" + path
+	content, err := mccassets.Files.ReadFile(filePath)
 	if err != nil {
-		http.Error(w, "failed to load index", http.StatusInternalServerError)
+		content, err = mccassets.Files.ReadFile("web/dist/index.html")
+		if err != nil {
+			http.Error(w, "failed to load frontend", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(content)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if contentType := mime.TypeByExtension(filepath.Ext(filePath)); contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
 	_, _ = w.Write(content)
 }
 

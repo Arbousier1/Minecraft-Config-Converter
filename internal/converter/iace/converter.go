@@ -418,7 +418,7 @@ func (c *Converter) convertItem(key string, data map[string]any) {
 	}
 
 	if modelID, ok := numericValue(resource["model_id"]); ok {
-		dataSection["custom-model-data"] = modelID
+		ceItem["custom-model-data"] = modelID
 	}
 
 	behaviours, _ := asStringMap(data["behaviours"])

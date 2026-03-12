@@ -30,5 +30,5 @@ go run ./cmd/mcc
 
 ```bash
 go build ./...
-go build -o dist/mcc.exe ./cmd/mcc
+go build -o dist/mcc-webview2.exe ./cmd/mcc
 ```

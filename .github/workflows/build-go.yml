@@ -21,11 +21,21 @@ jobs:
         go-version-file: go.mod
         cache: true
 
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+
+    - name: Install frontend dependencies
+      working-directory: frontend
+      run: npm install
+
+    - name: Build frontend
+      working-directory: frontend
+      run: npm run build
+
     - name: Download dependencies
       run: go mod download
-
-    - name: Build all packages
-      run: go build ./...
 
     - name: Run tests
       run: go test ./...
@@ -33,11 +43,12 @@ jobs:
     - name: Create dist directory
       run: New-Item -ItemType Directory -Force dist | Out-Null
 
-    - name: Build application binary
-      run: go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/mcc.exe ./cmd/mcc
+    - name: Build WebView2 application binary
+      run: go build -trimpath -ldflags "-s -w -H windowsgui" -o dist/mcc-webview2.exe ./cmd/mcc
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: mcc-go-rewrite-windows
-        path: dist/mcc.exe
+        name: mcc-webview2-windows
+        path: dist/mcc-webview2.exe
+        if-no-files-found: error

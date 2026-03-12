@@ -22,8 +22,13 @@ go run ./cmd/mcc
 
 ```bash
 go build ./...
-go build -o dist/mcc.exe ./cmd/mcc
+go build -o dist/mcc-webview2.exe ./cmd/mcc
 ```
+
+## GitHub Actions
+
+Push 到 `rewrite/go`，或在 GitHub 上手动触发 `Build Go` workflow。
+工作流会在 Windows runner 上先构建前端，再生成并上传 `dist/mcc-webview2.exe` artifact。
 
 ## Structure
 

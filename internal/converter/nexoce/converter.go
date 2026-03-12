@@ -375,7 +375,7 @@ func (c *Converter) convertItem(key string, data map[string]any) {
 	}
 
 	if modelID, ok := numericValue(data["model"]); ok {
-		dataSection["custom-model-data"] = modelID
+		ceItem["custom-model-data"] = modelID
 	}
 
 	pack, _ := asMap(data["Pack"])
