@@ -17,20 +17,22 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      PAGES_ENABLEMENT_TOKEN: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
 
     steps:
     - name: Checkout
       uses: actions/checkout@v5
 
     - name: Configure GitHub Pages with auto-enable
-      if: ${{ secrets.PAGES_ENABLEMENT_TOKEN != '' }}
+      if: ${{ env.PAGES_ENABLEMENT_TOKEN != '' }}
       uses: actions/configure-pages@v5
       with:
-        token: ${{ secrets.PAGES_ENABLEMENT_TOKEN }}
+        token: ${{ env.PAGES_ENABLEMENT_TOKEN }}
         enablement: true
 
     - name: Configure GitHub Pages
-      if: ${{ secrets.PAGES_ENABLEMENT_TOKEN == '' }}
+      if: ${{ env.PAGES_ENABLEMENT_TOKEN == '' }}
       uses: actions/configure-pages@v5
 
     - name: Build static preview
