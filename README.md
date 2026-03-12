@@ -1,13 +1,14 @@
 # MCC
 
-Minecraft Config Converter in Go.
+Minecraft Config Converter 的 Go 版本。
 
 ## Current Scope
 
 - `ItemsAdder -> CraftEngine`
 - `Nexo -> CraftEngine`
-- Package analysis with a shared `PackageIndex`
-- Cross-platform desktop UI built with `Fyne`
+- 包结构分析
+- 嵌入式 Web UI
+- 结果下载、心跳、关闭接口
 
 ## Run
 
@@ -15,27 +16,26 @@ Minecraft Config Converter in Go.
 go run ./cmd/mcc
 ```
 
-The desktop UI uses `cgo`. On Windows you need a GCC toolchain in `PATH`.
+默认监听 `http://127.0.0.1:5000`。
 
 ## Build
 
 ```bash
 go build ./...
-go build -o dist/mcc-desktop.exe ./cmd/mcc
+go build -o dist/mcc-webview2.exe ./cmd/mcc
 ```
 
 ## GitHub Actions
 
-Push to `rewrite/go`, or trigger the `Build Go` workflow manually.
-The workflow installs MinGW on a Windows runner, runs `go test ./...`, and uploads `dist/mcc-desktop.exe`.
+Push 到 `rewrite/go`，或在 GitHub 上手动触发 `Build Go` workflow。
+工作流会在 Windows runner 上先构建前端，再生成并上传 `dist/mcc-webview2.exe` artifact。
 
 ## Structure
 
-- `cmd/mcc`: desktop entrypoint
-- `internal/desktopui`: Fyne desktop shell
-- `internal/workflow`: zip analyze/convert workflow used by the desktop app
-- `internal/analyzer`: package analysis
-- `internal/converter/iace`: ItemsAdder conversion
-- `internal/converter/nexoce`: Nexo conversion
-- `internal/packageindex`: shared package scan index
-- `internal/fileutil`: shared file I/O helpers
+- `cmd/mcc`: 程序入口
+- `internal/server`: HTTP 服务
+- `internal/analyzer`: 包分析
+- `internal/converter/iace`: ItemsAdder 转换
+- `internal/converter/nexoce`: Nexo 转换
+- `internal/fileutil`: 共享文件 I/O
+- `web`: 前端静态资源

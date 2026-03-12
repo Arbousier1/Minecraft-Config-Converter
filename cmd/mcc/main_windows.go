@@ -1,14 +1,15 @@
-//go:build !windows
+//go:build windows
 
 package main
 
 import (
+	"errors"
 	"log"
-	"os/exec"
-	"runtime"
+	"net/http"
 	"time"
 
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/server"
+	webview2 "github.com/jchv/go-webview2"
 )
 
 func main() {
@@ -42,24 +43,27 @@ func main() {
 		log.Fatalf("start server: %v", err)
 	}
 
-	go openBrowser(appURL)
-	log.Printf("starting MCC on %s", appURL)
+	w := webview2.New(false)
+	if w == nil {
+		log.Fatal("init webview failed")
+	}
+	defer w.Destroy()
+
+	if err := w.Bind("quitApp", func() {
+		go app.Shutdown()
+		w.Terminate()
+	}); err != nil {
+		log.Fatalf("bind quitApp: %v", err)
+	}
+
+	w.SetTitle("MCC")
+	w.SetSize(1280, 900, webview2.HintNone)
+	w.Navigate(appURL)
+	log.Printf("starting MCC desktop shell on %s", appURL)
+	w.Run()
+
+	app.Shutdown()
 	if err := <-serveErrCh; err != nil {
 		log.Fatalf("server exited: %v", err)
 	}
-}
-
-func openBrowser(url string) {
-	time.Sleep(1500 * time.Millisecond)
-
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
-	case "darwin":
-		cmd = exec.Command("open", url)
-	default:
-		cmd = exec.Command("xdg-open", url)
-	}
-	_ = cmd.Start()
 }
