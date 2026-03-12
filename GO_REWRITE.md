@@ -4,21 +4,17 @@ Branch: `rewrite/go`
 
 ## Status
 
-这个分支现在按纯 Go 结构维护，不再保留 Python 参考实现或 Python 打包链路。
+This branch is now desktop-first.
 
-已实现：
+Implemented:
 
-- Go HTTP 服务入口
-- 嵌入式前端资源
-- `POST /api/analyze`
-- `POST /api/convert`
-- `GET /api/download/:filename`
-- `POST /api/heartbeat`
-- `POST /api/shutdown`
+- Cross-platform desktop UI with `Fyne`
+- Shared `PackageIndex` scan step
 - `ItemsAdder -> CraftEngine`
 - `Nexo -> CraftEngine`
-- YAML 兼容加载
-- 共享文件 I/O 层，用于流式压缩和复制
+- YAML compatibility loader
+- Shared file I/O helpers for extraction, copy, and zip output
+- Benchmark baseline for package indexing and conversion pipeline
 
 ## Run
 
@@ -30,5 +26,10 @@ go run ./cmd/mcc
 
 ```bash
 go build ./...
-go build -o dist/mcc-webview2.exe ./cmd/mcc
+go build -o dist/mcc-desktop.exe ./cmd/mcc
 ```
+
+## Notes
+
+- The real desktop UI is built when `cgo` is enabled.
+- The repository keeps a `!cgo` desktop stub so `go test ./...` still passes in environments without a GCC toolchain.

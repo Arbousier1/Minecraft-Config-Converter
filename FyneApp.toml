@@ -1,0 +1,8 @@
+[Details]
+  Name = "MCC"
+  ID = "github.com.Arbousier1.mcc"
+  Version = "0.1.0"
+  Icon = "icon.png"
+
+[Migrations]
+  fyneDo = true
