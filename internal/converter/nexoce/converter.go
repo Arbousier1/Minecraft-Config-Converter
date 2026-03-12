@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/fileutil"
-	"github.com/Arbousier1/Minecraft-Config-Converter/internal/yamlx"
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/packageindex"
 )
 
 var namespacePattern = regexp.MustCompile(`^[0-9a-z_.-]+$`)
@@ -36,6 +36,7 @@ func badRequestError(message string) error {
 
 type Options struct {
 	ExtractDir       string
+	Index            *packageindex.Index
 	SessionUploadDir string
 	SessionOutputDir string
 	OutputDir        string
@@ -79,7 +80,16 @@ type Converter struct {
 }
 
 func Run(opts Options) (*Result, error) {
-	scan, err := loadConfigs(opts.ExtractDir)
+	index := opts.Index
+	if index == nil {
+		var err error
+		index, err = packageindex.Build(opts.ExtractDir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	scan, err := loadConfigs(index)
 	if err != nil {
 		return nil, err
 	}
@@ -273,74 +283,17 @@ func (c *Converter) Save(outputDir string) error {
 	return nil
 }
 
-func loadConfigs(extractDir string) (*scanResult, error) {
-	scanRoot := extractDir
-	_ = filepath.Walk(extractDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || !info.IsDir() {
-			return nil
-		}
-		if strings.EqualFold(info.Name(), "nexo") {
-			scanRoot = path
-			return filepath.SkipDir
-		}
-		return nil
-	})
-
+func loadConfigs(index *packageindex.Index) (*scanResult, error) {
 	result := &scanResult{
 		configs:          []configDoc{},
-		resourcepackPath: "",
+		resourcepackPath: index.NexoResourcepackPath(),
 	}
 
-	err := filepath.Walk(scanRoot, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if info.IsDir() {
-			if result.resourcepackPath == "" {
-				switch {
-				case strings.EqualFold(info.Name(), "pack"):
-					result.resourcepackPath = path
-				default:
-					entries, err := os.ReadDir(path)
-					if err == nil {
-						for _, entry := range entries {
-							if entry.IsDir() && strings.EqualFold(entry.Name(), "assets") {
-								result.resourcepackPath = path
-								break
-							}
-						}
-					}
-				}
-			}
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(info.Name()))
-		if ext != ".yml" && ext != ".yaml" {
-			return nil
-		}
-		if strings.EqualFold(info.Name(), "config.yml") || strings.EqualFold(info.Name(), "config.yaml") {
-			return nil
-		}
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		data, err := yamlx.LoadMap(raw)
-		if err != nil || len(data) == 0 {
-			return nil
-		}
-
+	for _, doc := range index.NexoDocs() {
 		result.configs = append(result.configs, configDoc{
-			path: path,
-			data: data,
+			path: doc.Path,
+			data: doc.Data,
 		})
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	if len(result.configs) == 0 {

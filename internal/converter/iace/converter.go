@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/fileutil"
-	"github.com/Arbousier1/Minecraft-Config-Converter/internal/yamlx"
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/packageindex"
 	"gopkg.in/yaml.v3"
 )
 
@@ -37,6 +37,7 @@ func badRequestError(message string) error {
 
 type Options struct {
 	ExtractDir       string
+	Index            *packageindex.Index
 	SessionUploadDir string
 	SessionOutputDir string
 	OutputDir        string
@@ -87,7 +88,16 @@ type scanResult struct {
 }
 
 func Run(opts Options) (*Result, error) {
-	scan, err := loadMergedData(opts.ExtractDir)
+	index := opts.Index
+	if index == nil {
+		var err error
+		index, err = packageindex.Build(opts.ExtractDir)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	scan, err := loadMergedData(index)
 	if err != nil {
 		return nil, err
 	}
@@ -266,19 +276,7 @@ func (c *Converter) Save(outputDir string) error {
 	return nil
 }
 
-func loadMergedData(extractDir string) (*scanResult, error) {
-	scanRoot := extractDir
-	_ = filepath.Walk(extractDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || !info.IsDir() {
-			return nil
-		}
-		if strings.EqualFold(info.Name(), "itemsadder") {
-			scanRoot = path
-			return filepath.SkipDir
-		}
-		return nil
-	})
-
+func loadMergedData(index *packageindex.Index) (*scanResult, error) {
 	merged := &mergedData{
 		Items:           map[string]map[string]any{},
 		Equipments:      map[string]map[string]any{},
@@ -288,61 +286,12 @@ func loadMergedData(extractDir string) (*scanResult, error) {
 		Recipes:         map[string]map[string]map[string]any{},
 		Info:            map[string]any{},
 	}
-	resourcepackPath := ""
+	resourcepackPath := index.ItemsAdderResourcepackPath()
 
 	foundItems := false
 
-	err := filepath.Walk(scanRoot, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if info.IsDir() {
-			if resourcepackPath == "" {
-				if strings.EqualFold(info.Name(), "resourcepack") {
-					resourcepackPath = path
-				} else {
-					entries, err := os.ReadDir(path)
-					if err == nil {
-						hasAssets := false
-						hasModels := false
-						hasTextures := false
-						for _, entry := range entries {
-							if !entry.IsDir() {
-								continue
-							}
-							switch strings.ToLower(entry.Name()) {
-							case "assets":
-								hasAssets = true
-							case "models":
-								hasModels = true
-							case "textures":
-								hasTextures = true
-							}
-						}
-						if hasAssets || (hasModels && hasTextures) {
-							resourcepackPath = path
-						}
-					}
-				}
-			}
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(info.Name()))
-		if ext != ".yml" && ext != ".yaml" {
-			return nil
-		}
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		data, err := yamlx.LoadMap(raw)
-		if err != nil || len(data) == 0 {
-			return nil
-		}
-
+	for _, doc := range index.ItemsAdderDocs() {
+		data := doc.Data
 		if infoMap, ok := asStringMap(data["info"]); ok && len(merged.Info) == 0 {
 			for key, value := range infoMap {
 				merged.Info[key] = value
@@ -372,11 +321,6 @@ func loadMergedData(extractDir string) (*scanResult, error) {
 		if recipes, ok := asRecipeGroups(data["recipes"]); ok {
 			mergeRecipeGroups(merged.Recipes, recipes)
 		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, err
 	}
 
 	if !foundItems {
@@ -384,7 +328,7 @@ func loadMergedData(extractDir string) (*scanResult, error) {
 	}
 
 	if resourcepackPath == "" {
-		resourcepackPath = extractDir
+		resourcepackPath = index.ExtractDir
 	}
 
 	return &scanResult{
@@ -674,14 +618,6 @@ func buildArchiveName(original, target string) string {
 	return replacer.Replace(name)
 }
 
-func formatDisplayName(name, namespace string) string {
-	defaultColor := "<white>"
-	if strings.Contains(namespace, "elitecreatures") {
-		defaultColor = "<#FFCF20>"
-	}
-	return "<!i>" + defaultColor + strings.ReplaceAll(name, "&", "§")
-}
-
 func formatDisplayNameCompat(name, namespace string) string {
 	defaultColor := "<white>"
 	if strings.Contains(namespace, "elitecreatures") {
@@ -705,44 +641,6 @@ func normalizeLore(raw any) []string {
 	default:
 		return nil
 	}
-}
-
-func normalizeTextures(resource map[string]any) []string {
-	var textures []string
-	switch value := resource["textures"].(type) {
-	case []any:
-		for _, item := range value {
-			textures = append(textures, normalizeTexture(item))
-		}
-	case string:
-		textures = append(textures, normalizeTexture(value))
-	}
-	if len(textures) == 0 {
-		if texture := stringValue(resource["texture"]); texture != "" {
-			textures = append(textures, normalizeTexture(texture))
-		}
-	}
-
-	filtered := make([]string, 0, len(textures))
-	for _, item := range textures {
-		if item != "" {
-			filtered = append(filtered, item)
-		}
-	}
-	return filtered
-}
-
-func normalizeTexture(raw any) string {
-	value := normalizePath(stringValue(raw))
-	value = strings.TrimSuffix(value, ".png")
-	if parts := strings.SplitN(value, ":", 2); len(parts) == 2 {
-		value = parts[1]
-	}
-	value = strings.TrimPrefix(value, "textures/")
-	if !strings.HasPrefix(value, "item/") && !strings.HasPrefix(value, "block/") {
-		value = "item/" + strings.TrimPrefix(value, "/")
-	}
-	return value
 }
 
 func mapRecipeType(groupKey string, recipe map[string]any) string {
@@ -924,16 +822,6 @@ func hasEquipmentSetting(item map[string]any) bool {
 	}
 	_, exists := settings["equipment"]
 	return exists
-}
-
-func stripMinecraftColorCodes(value string) string {
-	replacer := strings.NewReplacer(
-		"&0", "", "&1", "", "&2", "", "&3", "", "&4", "", "&5", "", "&6", "", "&7", "", "&8", "", "&9", "",
-		"&a", "", "&b", "", "&c", "", "&d", "", "&e", "", "&f", "", "&k", "", "&l", "", "&m", "", "&n", "", "&o", "", "&r", "",
-		"§0", "", "§1", "", "§2", "", "§3", "", "§4", "", "§5", "", "§6", "", "§7", "", "§8", "", "§9", "",
-		"§a", "", "§b", "", "§c", "", "§d", "", "§e", "", "§f", "", "§k", "", "§l", "", "§m", "", "§n", "", "§o", "", "§r", "",
-	)
-	return replacer.Replace(value)
 }
 
 func stripMinecraftColorCodesCompat(value string) string {

@@ -23,6 +23,7 @@ import (
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/analyzer"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/converter/iace"
 	"github.com/Arbousier1/Minecraft-Config-Converter/internal/converter/nexoce"
+	"github.com/Arbousier1/Minecraft-Config-Converter/internal/packageindex"
 )
 
 const maxUploadSize = 500 << 20
@@ -50,6 +51,8 @@ type Server struct {
 	baseDir        string
 	uploadDir      string
 	outputDir      string
+	sessions       map[string]*sessionState
+	sessionsMu     sync.RWMutex
 	mux            *http.ServeMux
 	httpSrv        *http.Server
 	lastHeartbeat  atomic.Int64
@@ -58,11 +61,16 @@ type Server struct {
 	shutdownSignal sync.Once
 }
 
+type sessionState struct {
+	index *packageindex.Index
+}
+
 func New(baseDir string) (*Server, error) {
 	s := &Server{
 		baseDir:   baseDir,
 		uploadDir: filepath.Join(baseDir, "temp_uploads"),
 		outputDir: filepath.Join(baseDir, "temp_output"),
+		sessions:  make(map[string]*sessionState),
 		mux:       http.NewServeMux(),
 	}
 
@@ -187,11 +195,19 @@ func (s *Server) handleAnalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	report, err := analyzer.New(extractDir).Analyze()
+	index, err := packageindex.Build(extractDir)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+
+	report, err := analyzer.NewFromIndex(index).Analyze()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	s.storeSession(sessionID, &sessionState{index: index})
 
 	payload := buildReportPayload(report, header.Filename)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -279,6 +295,24 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 		originalFilename = header.Filename
 	}
 
+	var index *packageindex.Index
+	if sessionID != "" {
+		if session, ok := s.getSession(sessionID); ok {
+			index = session.index
+		}
+	}
+	if index == nil {
+		builtIndex, buildErr := packageindex.Build(extractDir)
+		if buildErr != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": buildErr.Error()})
+			return
+		}
+		index = builtIndex
+		if sessionID != "" {
+			s.storeSession(sessionID, &sessionState{index: index})
+		}
+	}
+
 	if targetFormat != "CraftEngine" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unsupported target format: " + targetFormat})
 		return
@@ -293,6 +327,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	case "Nexo":
 		result, runErr := nexoce.Run(nexoce.Options{
 			ExtractDir:       extractDir,
+			Index:            index,
 			SessionUploadDir: sessionUploadDir,
 			SessionOutputDir: sessionOutputDir,
 			OutputDir:        s.outputDir,
@@ -307,6 +342,7 @@ func (s *Server) handleConvert(w http.ResponseWriter, r *http.Request) {
 	default:
 		result, runErr := iace.Run(iace.Options{
 			ExtractDir:       extractDir,
+			Index:            index,
 			SessionUploadDir: sessionUploadDir,
 			SessionOutputDir: sessionOutputDir,
 			OutputDir:        s.outputDir,
@@ -556,4 +592,17 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+func (s *Server) storeSession(sessionID string, session *sessionState) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	s.sessions[sessionID] = session
+}
+
+func (s *Server) getSession(sessionID string) (*sessionState, bool) {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+	session, ok := s.sessions[sessionID]
+	return session, ok
 }

@@ -117,13 +117,13 @@ func (c *Converter) handleFurniture(ceItem map[string]any, data map[string]any, 
 
 	placement := map[string]any{}
 	if boolDefaultTrue(placeableOn["floor"]) {
-		placement["ground"] = c.createPlacementBlock(ceID, furniture, "ground", sitData, entityType, translationY)
+		placement["ground"] = c.createPlacementBlock(ceID, furniture, "ground", sitData, translationY)
 	}
 	if boolValue(placeableOn["walls"]) {
-		placement["wall"] = c.createPlacementBlock(ceID, furniture, "wall", sitData, entityType, translationY)
+		placement["wall"] = c.createPlacementBlock(ceID, furniture, "wall", sitData, translationY)
 	}
 	if boolValue(placeableOn["ceiling"]) {
-		placement["ceiling"] = c.createPlacementBlock(ceID, furniture, "ceiling", sitData, entityType, translationY)
+		placement["ceiling"] = c.createPlacementBlock(ceID, furniture, "ceiling", sitData, translationY)
 	}
 
 	behavior := ceItem["behavior"].(map[string]any)
@@ -182,7 +182,7 @@ func (c *Converter) calculateModelYTranslation(modelPath string) float64 {
 	return 0.5
 }
 
-func (c *Converter) createPlacementBlock(ceID string, furniture map[string]any, placementType string, sitData map[string]any, entityType string, customTranslationY float64) map[string]any {
+func (c *Converter) createPlacementBlock(ceID string, furniture map[string]any, placementType string, sitData map[string]any, customTranslationY float64) map[string]any {
 	height, width, length := 1.0, 1.0, 1.0
 	hitbox, hasHitbox := asStringMap(furniture["hitbox"])
 	if hasHitbox {
@@ -237,9 +237,10 @@ func (c *Converter) createPlacementBlock(ceID string, furniture map[string]any, 
 	if scaleX != 1 || scaleY != 1 || scaleZ != 1 {
 		elementEntry["scale"] = fmt.Sprintf("%g,%g,%g", scaleX, scaleY, scaleZ)
 	}
-	if placementType == "wall" {
+	switch placementType {
+	case "wall":
 		elementEntry["position"] = "0,0,0.5"
-	} else if placementType == "ceiling" {
+	case "ceiling":
 		elementEntry["position"] = "0,-1,0"
 	}
 

@@ -1,12 +1,6 @@
 package analyzer
 
-import (
-	"os"
-	"path/filepath"
-	"strings"
-
-	"github.com/Arbousier1/Minecraft-Config-Converter/internal/yamlx"
-)
+import "github.com/Arbousier1/Minecraft-Config-Converter/internal/packageindex"
 
 const (
 	contentTypeEquipment = "装备"
@@ -36,6 +30,7 @@ type Report struct {
 
 type Analyzer struct {
 	extractPath string
+	index       *packageindex.Index
 	formats     map[string]struct{}
 	content     map[string]struct{}
 	report      Report
@@ -55,50 +50,45 @@ func New(extractPath string) *Analyzer {
 	}
 }
 
+func NewFromIndex(index *packageindex.Index) *Analyzer {
+	analyzer := New(index.ExtractDir)
+	analyzer.index = index
+	return analyzer
+}
+
 func (a *Analyzer) Analyze() (Report, error) {
-	err := filepath.Walk(a.extractPath, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
+	index := a.index
+	if index == nil {
+		var err error
+		index, err = packageindex.Build(a.extractPath)
+		if err != nil {
+			return Report{}, err
 		}
+		a.index = index
+	}
 
-		pathLower := strings.ToLower(path)
-		nameLower := strings.ToLower(info.Name())
+	a.resetReport()
+	if index.HasItemsAdderRoot {
+		a.addFormat("ItemsAdder")
+	}
+	if index.HasCraftEngineDir {
+		a.addFormat("CraftEngine")
+	}
+	if index.HasNexoRoot {
+		a.addFormat("Nexo")
+	}
+	if index.TextureCount > 0 {
+		a.addContent(contentTypeTexture)
+	}
+	if index.ModelCount > 0 {
+		a.addContent(contentTypeModel)
+	}
+	a.report.Details.TextureCount = index.TextureCount
+	a.report.Details.ModelCount = index.ModelCount
+	a.report.Completeness.ResourceFiles = index.HasResourceFiles
 
-		if info.IsDir() {
-			switch nameLower {
-			case "itemsadder":
-				a.addFormat("ItemsAdder")
-			case "craftengine":
-				a.addFormat("CraftEngine")
-			case "nexo":
-				a.addFormat("Nexo")
-			case "resourcepack":
-				a.report.Completeness.ResourceFiles = true
-			}
-			return nil
-		}
-
-		ext := strings.ToLower(filepath.Ext(info.Name()))
-		if ext == ".png" && strings.Contains(pathLower, "textures") {
-			a.addContent(contentTypeTexture)
-			a.report.Details.TextureCount++
-			a.report.Completeness.ResourceFiles = true
-		}
-
-		if ext == ".json" && strings.Contains(pathLower, "models") {
-			a.addContent(contentTypeModel)
-			a.report.Details.ModelCount++
-			a.report.Completeness.ResourceFiles = true
-		}
-
-		if ext == ".yml" || ext == ".yaml" {
-			a.analyzeYAML(path)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return Report{}, err
+	for _, doc := range index.YAMLDocs {
+		a.analyzeYAML(doc.Data)
 	}
 
 	a.report.Formats = setToSortedSlice(a.formats, []string{"ItemsAdder", "CraftEngine", "Nexo"})
@@ -111,17 +101,7 @@ func (a *Analyzer) Analyze() (Report, error) {
 	return a.report, nil
 }
 
-func (a *Analyzer) analyzeYAML(path string) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return
-	}
-
-	data, err := yamlx.LoadMap(raw)
-	if err != nil || len(data) == 0 {
-		return
-	}
-
+func (a *Analyzer) analyzeYAML(data map[string]any) {
 	isIA := isIAConfig(data)
 	isCE := isCEConfig(data)
 	isNexo := isNexoConfig(data)
@@ -157,6 +137,17 @@ func (a *Analyzer) analyzeYAML(path string) {
 
 	if isNexo {
 		a.addFormat("Nexo")
+	}
+}
+
+func (a *Analyzer) resetReport() {
+	a.formats = make(map[string]struct{})
+	a.content = make(map[string]struct{})
+	a.report = Report{
+		Formats:      []string{},
+		ContentTypes: []string{},
+		Completeness: Completeness{},
+		Details:      Details{},
 	}
 }
 
